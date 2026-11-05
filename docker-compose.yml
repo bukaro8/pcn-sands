@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pcn_management
+      POSTGRES_USER: pcn_user
+      POSTGRES_PASSWORD: local_dev_password
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pcn_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcn_user -d pcn_management"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  pcn_postgres_data:
