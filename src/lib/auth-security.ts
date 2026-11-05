@@ -57,14 +57,20 @@ export async function verifyAdminCredentials(credentials: unknown, request: Requ
   const expectedUsername = configuredUsername();
   if (!expectedUsername || !configuredHash) {
     console.error("Administrator login unavailable: ADMIN_USERNAME or ADMIN_PASSWORD_HASH is missing.");
-    return null;
+    throw new Error("Authentication configuration unavailable");
   }
   if (!/^\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+\$[^$]+\$[^$]+$/.test(configuredHash)) {
     console.error("Administrator login unavailable: ADMIN_PASSWORD_HASH is not a valid Argon2id encoded hash.");
-    return null;
+    throw new Error("Authentication configuration unavailable");
   }
   const now = new Date();
-  const attempt = key ? await prisma.loginAttempt.findUnique({ where: { key } }) : null;
+  let attempt = null;
+  try {
+    attempt = key ? await prisma.loginAttempt.findUnique({ where: { key } }) : null;
+  } catch {
+    console.error("Administrator login unavailable: login attempt database read failed.");
+    throw new Error("Authentication database unavailable");
+  }
   if (attempt?.lockedUntil && attempt.lockedUntil > now) return null;
   let passwordMatches = false;
   try {
@@ -73,15 +79,27 @@ export async function verifyAdminCredentials(credentials: unknown, request: Requ
     passwordMatches = await argon2.verify(configuredHash, credentials.password);
   } catch {
     console.error("Administrator login unavailable: ADMIN_PASSWORD_HASH verification failed.");
-    return null;
+    throw new Error("Authentication configuration unavailable");
   }
 
   if (username !== expectedUsername || !passwordMatches) {
-    if (key && username === expectedUsername) await recordFailure(key, now);
+    if (key && username === expectedUsername) {
+      try { await recordFailure(key, now); }
+      catch {
+        console.error("Administrator login unavailable: login attempt database write failed.");
+        throw new Error("Authentication database unavailable");
+      }
+    }
     return null;
   }
 
-  if (key) await prisma.loginAttempt.deleteMany({ where: { key } });
+  if (key) {
+    try { await prisma.loginAttempt.deleteMany({ where: { key } }); }
+    catch {
+      console.error("Administrator login unavailable: login attempt database cleanup failed.");
+      throw new Error("Authentication database unavailable");
+    }
+  }
   return { id: "administrator", name: process.env.ADMIN_USERNAME?.trim() || "Administrator" };
 }
 

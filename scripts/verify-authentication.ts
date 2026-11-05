@@ -2,8 +2,10 @@ import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
 
 import argon2 from "argon2";
+import { AuthError, CredentialsSignin } from "next-auth";
 
 import { prisma } from "../src/lib/prisma";
+import { loginErrorMessage } from "../src/lib/login-errors";
 
 function attemptKey(username: string, address: string) {
   return createHash("sha256").update(`username:${username}\u0000${address}`).digest("hex");
@@ -47,14 +49,37 @@ async function main() {
     console.error = (message: unknown) => { diagnostics.push(String(message)); };
     try {
       process.env.ADMIN_PASSWORD_HASH = "malformed";
-      if (await verifyAdminCredentials({ username, password: "correct horse battery staple" }, otherClient)) throw new Error("Malformed hash was accepted");
+      await verifyAdminCredentials({ username, password: "correct horse battery staple" }, otherClient).then(() => { throw new Error("Malformed hash was accepted"); }, () => {});
       delete process.env.ADMIN_PASSWORD_HASH;
-      if (await verifyAdminCredentials({ username, password: "correct horse battery staple" }, otherClient)) throw new Error("Missing hash was accepted");
+      await verifyAdminCredentials({ username, password: "correct horse battery staple" }, otherClient).then(() => { throw new Error("Missing hash was accepted"); }, () => {});
     } finally {
       console.error = originalError;
       process.env.ADMIN_PASSWORD_HASH = previous.passwordHash;
     }
     if (diagnostics.length !== 2 || diagnostics.some((line) => line.includes("correct horse") || line.includes("malformed"))) throw new Error("Safe configuration diagnostics were not produced");
+
+    const originalFind = prisma.loginAttempt.findUnique;
+    const originalErrorForDb = console.error;
+    const databaseDiagnostics: string[] = [];
+    console.error = (message: unknown) => { databaseDiagnostics.push(String(message)); };
+    prisma.loginAttempt.findUnique = (() => { throw new Error("fictional connection failure"); }) as typeof originalFind;
+    try {
+      process.env.ADMIN_PASSWORD_HASH = await argon2.hash("correct horse battery staple", { type: argon2.argon2id });
+      await verifyAdminCredentials({ username, password: "correct horse battery staple" }, otherClient).then(() => { throw new Error("Database failure was accepted as login"); }, () => {});
+    } finally {
+      prisma.loginAttempt.findUnique = originalFind;
+      console.error = originalErrorForDb;
+    }
+    if (databaseDiagnostics.length !== 1 || !databaseDiagnostics[0].includes("database read failed") || databaseDiagnostics[0].includes("fictional connection")) throw new Error("Database failure diagnostic was unsafe or missing");
+    if (loginErrorMessage(new CredentialsSignin()) !== "Invalid username or password.") throw new Error("Credential failure message changed");
+    const serviceLogs: string[] = [];
+    const originalServiceError = console.error;
+    console.error = (message: unknown) => { serviceLogs.push(String(message)); };
+    try {
+      class TestServiceError extends AuthError { static type = "CallbackRouteError"; }
+      if (loginErrorMessage(new TestServiceError()) !== "Sign-in is temporarily unavailable. Please try again later.") throw new Error("Service failure was reported as invalid credentials");
+    } finally { console.error = originalServiceError; }
+    if (serviceLogs.length !== 1 || !serviceLogs[0].includes("CallbackRouteError")) throw new Error("Service error was not logged safely");
 
     const { sessionMaxAgeSeconds } = await import("../src/auth");
     if (sessionMaxAgeSeconds !== 8 * 60 * 60) throw new Error("Unexpected session expiry");

@@ -11,6 +11,12 @@ function createPrismaClient() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not configured");
   }
+  let databaseUrl: URL;
+  try { databaseUrl = new URL(connectionString); }
+  catch { throw new Error("DATABASE_URL is malformed"); }
+  if (!["postgresql:", "postgres:"].includes(databaseUrl.protocol) || !databaseUrl.hostname || !databaseUrl.pathname || databaseUrl.pathname === "/") {
+    throw new Error("DATABASE_URL must be a PostgreSQL URL with a host and database name");
+  }
 
   return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 }

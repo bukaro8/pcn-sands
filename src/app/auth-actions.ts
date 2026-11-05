@@ -1,9 +1,9 @@
 "use server";
 
-import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { signIn, signOut } from "@/auth";
+import { loginErrorMessage } from "@/lib/login-errors";
 
 export async function login(_: { error?: string }, formData: FormData) {
   const username = String(formData.get("username") ?? "");
@@ -13,7 +13,8 @@ export async function login(_: { error?: string }, formData: FormData) {
   try {
     await signIn("credentials", { username, password, redirect: false });
   } catch (error) {
-    if (error instanceof AuthError) return { error: "Invalid username or password." };
+    const message = loginErrorMessage(error);
+    if (message) return { error: message };
     throw error;
   }
   redirect(safeCallbackUrl);
