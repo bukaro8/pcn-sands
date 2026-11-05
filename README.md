@@ -71,7 +71,7 @@ npm run auth:hash-password
 | `ADMIN_USERNAME` | The sole administrator username. |
 | `ADMIN_PASSWORD_HASH` | Output of `npm run auth:hash-password`; never the plaintext password. |
 
-The login form uses standard `username` and `current-password` autocomplete fields for browser password managers. Sessions are HTTP-only, `SameSite=Lax`, secure cookies in production, and expire after eight hours. Failed sign-ins are limited to five attempts per username/IP hash in fifteen minutes; the app returns the same generic error for an invalid username, invalid password, and a temporary lock.
+The login form uses standard `username` and `current-password` autocomplete fields for browser password managers. Sessions are HTTP-only, `SameSite=Lax`, secure cookies in production, and expire after eight hours. Failed administrator sign-ins are limited to five attempts per username and validated client IP in fifteen minutes; the app returns the same generic error for an invalid username, invalid password, and a temporary lock. Coolify's trusted reverse proxy must supply the actual client IP as the first `X-Forwarded-For` address. If no valid client IP is supplied, the app does not create a shared lockout key; check proxy forwarding before relying on login throttling for those requests.
 
 Keep `AUTH_SECRET` unchanged across redeployments or every administrator session will be invalidated. Set the public Coolify domain with HTTPS before using the app: Coolify terminates TLS at its reverse proxy and the application sets secure cookies in production. Do not expose the container port directly to the internet.
 

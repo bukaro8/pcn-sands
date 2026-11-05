@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 
 import argon2 from "argon2";
 
@@ -13,11 +14,13 @@ function configuredUsername() {
 
 function clientAddress(request: Request) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return (forwarded || request.headers.get("x-real-ip") || "unknown").slice(0, 128);
+  // Coolify's trusted reverse proxy must set X-Forwarded-For to the client IP.
+  // X-Real-IP may identify the proxy itself, so it is not a safe lockout key.
+  return forwarded && isIP(forwarded) ? forwarded : null;
 }
 
-function loginKey(scope: "username" | "ip", value: string, address: string) {
-  return createHash("sha256").update(`${scope}:${value}\u0000${address}`).digest("hex");
+function loginKey(username: string, address: string) {
+  return createHash("sha256").update(`username:${username}\u0000${address}`).digest("hex");
 }
 
 function validCredentials(credentials: unknown): credentials is { username: string; password: string } {
@@ -49,28 +52,36 @@ export async function verifyAdminCredentials(credentials: unknown, request: Requ
   if (!validCredentials(credentials)) return null;
   const username = credentials.username.trim().toLocaleLowerCase("en-GB");
   const address = clientAddress(request);
-  const keys = [loginKey("username", username, address), loginKey("ip", "", address)];
-  const now = new Date();
-  const attempts = await Promise.all(keys.map((key) => prisma.loginAttempt.findUnique({ where: { key } })));
-  if (attempts.some((attempt) => attempt?.lockedUntil && attempt.lockedUntil > now)) return null;
-
+  const key = address ? loginKey(username, address) : null;
   const configuredHash = process.env.ADMIN_PASSWORD_HASH;
   const expectedUsername = configuredUsername();
+  if (!expectedUsername || !configuredHash) {
+    console.error("Administrator login unavailable: ADMIN_USERNAME or ADMIN_PASSWORD_HASH is missing.");
+    return null;
+  }
+  if (!/^\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+\$[^$]+\$[^$]+$/.test(configuredHash)) {
+    console.error("Administrator login unavailable: ADMIN_PASSWORD_HASH is not a valid Argon2id encoded hash.");
+    return null;
+  }
+  const now = new Date();
+  const attempt = key ? await prisma.loginAttempt.findUnique({ where: { key } }) : null;
+  if (attempt?.lockedUntil && attempt.lockedUntil > now) return null;
   let passwordMatches = false;
   try {
     // Always perform the configured hash verification when available to reduce
     // timing differences between an unknown username and a wrong password.
-    passwordMatches = configuredHash ? await argon2.verify(configuredHash, credentials.password) : false;
+    passwordMatches = await argon2.verify(configuredHash, credentials.password);
   } catch {
-    passwordMatches = false;
-  }
-
-  if (!expectedUsername || !configuredHash || username !== expectedUsername || !passwordMatches) {
-    await Promise.all(keys.map((key) => recordFailure(key, now)));
+    console.error("Administrator login unavailable: ADMIN_PASSWORD_HASH verification failed.");
     return null;
   }
 
-  await prisma.loginAttempt.deleteMany({ where: { key: { in: keys } } });
+  if (username !== expectedUsername || !passwordMatches) {
+    if (key && username === expectedUsername) await recordFailure(key, now);
+    return null;
+  }
+
+  if (key) await prisma.loginAttempt.deleteMany({ where: { key } });
   return { id: "administrator", name: process.env.ADMIN_USERNAME?.trim() || "Administrator" };
 }
 
