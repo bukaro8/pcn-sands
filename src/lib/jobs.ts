@@ -1,4 +1,6 @@
 import { appConfig } from "@/lib/config";
+import { getDailyChecklist, isWeekdayMidday, londonDateKey } from "@/lib/checklist";
+import { buildChecklistEmailHtml } from "@/lib/checklist-email";
 import { sendEmail } from "@/lib/email";
 import { buildReportEmailHtml } from "@/lib/report-email";
 import { buildReportPdf } from "@/lib/report-pdf";
@@ -13,7 +15,7 @@ function londonParts(now: Date) {
 
 export function isWeeklyReportWindow(now = new Date()) { const parts = londonParts(now); return parts.weekday === "Fri" && parts.hour === 7; }
 
-async function claimJob(jobKey: string, type: "WEEKLY_REPORT" | "REMINDER_DELIVERY") {
+async function claimJob(jobKey: string, type: "WEEKLY_REPORT" | "REMINDER_DELIVERY" | "DAILY_CHECKLIST") {
   try { return await prisma.jobExecution.create({ data: { jobKey, type, status: "RUNNING" } }); }
   catch {
     const stale = new Date(Date.now() - 30 * 60 * 1000);
@@ -69,30 +71,63 @@ export async function processWeeklyReport(now = new Date(), enforceWindow = true
   }
 }
 
+export async function processDailyChecklistEmail(now = new Date(), enforceWindow = true) {
+  if (enforceWindow && !isWeekdayMidday(now)) return { status: "skipped" as const, reason: "outside-window" };
+  const jobKey = `daily-checklist:${londonDateKey(now)}`;
+  const job = await claimJob(jobKey, "DAILY_CHECKLIST");
+  if (!job) return { status: "skipped" as const, reason: "already-processed" };
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail) { await finishJob(jobKey, "SKIPPED", "ADMIN_EMAIL is not configured"); return { status: "skipped" as const, reason: "missing-admin-email" }; }
+  const baseUrl = process.env.AUTH_URL?.trim();
+  if (!baseUrl || !/^https:\/\//i.test(baseUrl)) { await finishJob(jobKey, "SKIPPED", "AUTH_URL must be configured as an HTTPS URL"); return { status: "skipped" as const, reason: "missing-public-url" }; }
+  try {
+    const tasks = await getDailyChecklist(now);
+    if (!tasks.length) { await finishJob(jobKey, "SKIPPED", "No actionable checklist tasks"); return { status: "skipped" as const, reason: "no-actionable-tasks" }; }
+    const result = await sendEmail({ to: adminEmail, subject: `Today's PCN checklist - ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "Europe/London" }).format(now)}`, html: buildChecklistEmailHtml(tasks, baseUrl, now) });
+    await finishJob(jobKey, "SUCCEEDED");
+    return { status: "succeeded" as const, count: tasks.length, providerId: result.id };
+  } catch {
+    await finishJob(jobKey, "FAILED", "Daily checklist email submission failed");
+    return { status: "failed" as const };
+  }
+}
+
 export async function processPersonalReminders(now = new Date()) {
   const parts = londonParts(now); const jobKey = `personal-reminders:${parts.key}`;
   const job = await claimJob(jobKey, "REMINDER_DELIVERY");
   if (!job) return { status: "skipped" as const, reason: "already-processed" };
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) { await finishJob(jobKey, "SKIPPED", "ADMIN_EMAIL is not configured"); return { status: "skipped" as const, reason: "missing-admin-email" }; }
   const start = new Date(`${parts.key}T00:00:00.000Z`);
   const end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
   // A failed job can be claimed again later that day; accepted reminders become
   // NOTIFIED and cannot be sent twice.
   const reminders = await prisma.reminder.findMany({ where: { status: "PENDING", dueAt: { gte: start, lt: end } }, include: { pcn: { include: { vehicle: true } }, challenge: true, delivery: true } });
+  if (!adminEmail && !reminders.some((reminder) => reminder.type === "PAYMENT_DEADLINE")) {
+    await finishJob(jobKey, "SKIPPED", "ADMIN_EMAIL is not configured");
+    return { status: "skipped" as const, reason: "missing-admin-email" };
+  }
   let failures = 0;
+  let configurationSkips = 0;
   for (const reminder of reminders) {
+    const payment = reminder.type === "PAYMENT_DEADLINE";
+    const recipient = payment ? appConfig.managerWeeklyReportRecipient : adminEmail;
+    if (!recipient) { configurationSkips += 1; continue; }
+    const deliveryRecipient: string = recipient;
     try {
-      const payment = reminder.type === "PAYMENT_DEADLINE";
       const subject = payment ? `Payment deadline reminder: ${reminder.pcn.reference}` : `Challenge status check: ${reminder.pcn.reference}`;
       const body = payment ? `<p>Payment reminder for ${reminder.pcn.reference}, vehicle ${reminder.pcn.vehicle.registrationDisplay}.</p><p>Payment deadline: ${reminder.pcn.paymentDeadline ? formatDate(reminder.pcn.paymentDeadline) : "not recorded"}.</p>` : `<p>Status check reminder for ${reminder.pcn.reference}, vehicle ${reminder.pcn.vehicle.registrationDisplay}.</p><p>Review the challenge status manually with the issuer.</p>`;
-      const sent = await sendEmail({ to: adminEmail, subject, html: body });
-      await prisma.$transaction([prisma.reminderDelivery.upsert({ where: { reminderId: reminder.id }, create: { reminderId: reminder.id, recipient: adminEmail, status: "SENT", providerId: sent.id, attemptedAt: new Date(), sentAt: new Date(), attempts: 1 }, update: { recipient: adminEmail, status: "SENT", providerId: sent.id, error: null, attemptedAt: new Date(), sentAt: new Date(), attempts: { increment: 1 } } }), prisma.reminder.update({ where: { id: reminder.id }, data: { status: "NOTIFIED", notifiedAt: new Date() } })]);
+      const sent = await sendEmail({ to: deliveryRecipient, subject, html: body });
+      await prisma.$transaction([prisma.reminderDelivery.upsert({ where: { reminderId: reminder.id }, create: { reminderId: reminder.id, recipient: deliveryRecipient, status: "SENT", providerId: sent.id, attemptedAt: new Date(), sentAt: new Date(), attempts: 1 }, update: { recipient: deliveryRecipient, status: "SENT", providerId: sent.id, error: null, attemptedAt: new Date(), sentAt: new Date(), attempts: { increment: 1 } } }), prisma.reminder.update({ where: { id: reminder.id }, data: { status: "NOTIFIED", notifiedAt: new Date() } })]);
     } catch {
       failures += 1;
-      await prisma.reminderDelivery.upsert({ where: { reminderId: reminder.id }, create: { reminderId: reminder.id, recipient: adminEmail, status: "FAILED", error: "Email provider request failed", attemptedAt: new Date(), attempts: 1 }, update: { status: "FAILED", error: "Email provider request failed", attemptedAt: new Date(), attempts: { increment: 1 } } });
+      await prisma.reminderDelivery.upsert({ where: { reminderId: reminder.id }, create: { reminderId: reminder.id, recipient: deliveryRecipient, status: "FAILED", error: "Email provider request failed", attemptedAt: new Date(), attempts: 1 }, update: { recipient: deliveryRecipient, status: "FAILED", error: "Email provider request failed", attemptedAt: new Date(), attempts: { increment: 1 } } });
     }
   }
-  await finishJob(jobKey, failures ? "FAILED" : "SUCCEEDED", failures ? "One or more reminder emails failed" : undefined);
-  return { status: failures ? "failed" as const : "succeeded" as const, count: reminders.length };
+  if (!reminders.length || (configurationSkips === reminders.length && !failures)) {
+    await finishJob(jobKey, "SKIPPED", !reminders.length ? "No reminders due" : "ADMIN_EMAIL is not configured for challenge status checks");
+    return { status: "skipped" as const, reason: !reminders.length ? "no-reminders-due" : "missing-admin-email" };
+  }
+  const warning = configurationSkips ? "Some challenge status checks were skipped because ADMIN_EMAIL is not configured" : undefined;
+  await finishJob(jobKey, failures ? "FAILED" : "SUCCEEDED", failures ? "One or more reminder emails failed" : warning);
+  return { status: failures ? "failed" as const : "succeeded" as const, count: reminders.length - configurationSkips, warning };
 }

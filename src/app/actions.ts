@@ -6,9 +6,10 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, logDatabaseError } from "@/lib/database-errors";
 import { challengeOutcomes, challengeStages, challengeStatuses, noticeTypes, paymentStatuses } from "@/lib/pcn";
-import { getOrCreateVehicle } from "@/lib/vehicles";
+import { getOrCreateVehicle, normalizeUkRegistration } from "@/lib/vehicles";
 import { createOrGetReport } from "@/lib/reporting";
 import { sendReportEmail } from "@/lib/jobs";
+import { completeChecklistTask } from "@/lib/checklist";
 import { requireAdmin } from "@/lib/require-admin";
 
 function value(formData: FormData, name: string): string {
@@ -24,7 +25,7 @@ function requiredDate(formData: FormData, name: string): Date {
   const raw = value(formData, name);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) throw new Error(`${name} must be a valid date`);
   const date = new Date(`${raw}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) throw new Error(`${name} must be a valid date`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== raw) throw new Error(`${name} must be a valid date`);
   return date;
 }
 
@@ -59,6 +60,9 @@ function actionError(path: string, error: unknown): never {
     "Challenge does not belong to this PCN", "This challenge has already been marked as submitted",
     "Challenge text is required before submission", "A decision date is required for an accepted or rejected challenge",
     "This PCN is included in report history and cannot be deleted", "Payment amount must be a valid non-negative amount",
+    "A rejected challenge must retain a payment status", "Notice does not match this PCN and vehicle",
+    "Additional evidence details are too long",
+    "Contravention time must use HH:mm", "Notes are too long", "Delivery time must use HH:mm",
   ];
   let message: string;
   if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
@@ -108,15 +112,34 @@ async function syncPaymentReminder(pcnId: string, deadline: Date | null, payment
   const dueAt = new Date(deadline);
   dueAt.setUTCDate(dueAt.getUTCDate() - 2);
   const deadlineKey = deadline.toISOString().slice(0, 10);
+  const eventKey = `payment-deadline:${pcnId}:${deadlineKey}`;
+  await prisma.reminder.updateMany({
+    where: { pcnId, type: "PAYMENT_DEADLINE", status: "PENDING", eventKey: { not: eventKey } },
+    data: { status: "COMPLETED", completedAt: new Date() },
+  });
   await prisma.reminder.upsert({
-    where: { eventKey: `payment-deadline:${pcnId}:${deadlineKey}` },
+    where: { eventKey },
     create: {
       pcnId,
       type: "PAYMENT_DEADLINE",
-      eventKey: `payment-deadline:${pcnId}:${deadlineKey}`,
+      eventKey,
       dueAt,
     },
     update: { dueAt },
+  });
+}
+
+async function resolvePreparationChecklistTask(pcnId: string) {
+  await prisma.checklistTask.updateMany({
+    where: { taskKey: `prepare-challenge:${pcnId}`, completedAt: null },
+    data: { completedAt: new Date() },
+  });
+}
+
+async function resolveChallengeStatusChecks(challengeId: string) {
+  await prisma.reminder.updateMany({
+    where: { challengeId, type: "CHALLENGE_STATUS_CHECK", status: { in: ["PENDING", "NOTIFIED"] } },
+    data: { status: "COMPLETED", completedAt: new Date() },
   });
 }
 
@@ -136,6 +159,11 @@ function parsePcn(formData: FormData) {
   const location = value(formData, "contraventionLocation");
   if (!reference || !registration || !location) throw new Error("Reference, vehicle registration and location are required");
   if (reference.length > 80 || location.length > 300) throw new Error("One or more fields are too long");
+  const description = optionalValue(formData, "contraventionDescription");
+  const time = optionalValue(formData, "contraventionTime");
+  if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Contravention time must use HH:mm");
+  const notes = [description && `Contravention description: ${description}`, time && `Contravention time: ${time}`, optionalValue(formData, "notes")].filter(Boolean).join("\n") || null;
+  if ((notes?.length ?? 0) > 4000) throw new Error("Notes are too long");
 
   return {
     reference,
@@ -150,7 +178,7 @@ function parsePcn(formData: FormData) {
     paymentDeadline: optionalDate(formData, "paymentDeadline"),
     paymentAmountPence: optionalMoneyInPence(formData, "paymentAmount"),
     paymentReference: optionalValue(formData, "paymentReference"),
-    notes: optionalValue(formData, "notes"),
+    notes,
   };
 }
 
@@ -171,6 +199,14 @@ export async function createPcn(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/pcns");
   redirect(destination!);
+}
+
+export async function completeChecklistTaskAction(formData: FormData) {
+  await requireAdmin();
+  const taskId = value(formData, "taskId");
+  if (taskId) await completeChecklistTask(taskId);
+  revalidatePath("/");
+  redirect("/?completed=1");
 }
 
 export async function updatePcn(formData: FormData) {
@@ -216,6 +252,7 @@ export async function createChallenge(formData: FormData) {
       },
     });
     await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: "AWAITING_DECISION" } });
+    await resolvePreparationChecklistTask(pcnId);
     await syncChallengeReminder(pcnId, challenge.id, nextStatusCheckDate);
   } catch (error) {
     actionError(detailPath, error);
@@ -271,6 +308,7 @@ export async function markChallengeSubmitted(formData: FormData) {
     if (challengeText.length > 12000) throw new Error("Challenge text is too long");
     await prisma.challenge.update({ where: { id: challengeId }, data: { submissionDate, outcome: "PENDING", nextStatusCheckDate, challengeText } });
     await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: "AWAITING_DECISION" } });
+    await resolvePreparationChecklistTask(pcnId);
     await syncChallengeReminder(pcnId, challengeId, nextStatusCheckDate);
   } catch (error) {
     actionError(detailPath, error);
@@ -291,16 +329,28 @@ export async function updateChallenge(formData: FormData) {
     const outcome = enumValue(formData, "outcome", challengeOutcomes);
     const decisionDate = optionalDate(formData, "decisionDate");
     if (outcome !== "PENDING" && !decisionDate) throw new Error("A decision date is required for an accepted or rejected challenge");
-    const existing = await prisma.challenge.findUnique({ where: { id: challengeId }, select: { pcnId: true } });
+    const existing = await prisma.challenge.findUnique({ where: { id: challengeId }, select: { pcnId: true, pcn: { select: { paymentStatus: true } } } });
     if (!existing || existing.pcnId !== pcnId) throw new Error("Challenge does not belong to this PCN");
     await prisma.challenge.update({
       where: { id: challengeId },
       data: { outcome, decisionDate, nextStatusCheckDate: optionalDate(formData, "nextStatusCheckDate") },
     });
-    await prisma.pcn.update({
-      where: { id: pcnId },
-      data: { challengeStatus: outcome === "PENDING" ? "AWAITING_DECISION" : outcome },
-    });
+    if (outcome === "REJECTED") {
+      const paymentStatus = enumValue(formData, "paymentStatus", paymentStatuses);
+      if (paymentStatus === "NOT_REQUIRED") throw new Error("A rejected challenge must retain a payment status");
+      const paymentDeadline = optionalDate(formData, "paymentDeadline");
+      await prisma.pcn.update({ where: { id: pcnId }, data: {
+        challengeStatus: "REJECTED",
+        paymentStatus,
+        paymentDeadline,
+        paymentAmountPence: optionalMoneyInPence(formData, "paymentAmount"),
+        paymentReference: optionalValue(formData, "paymentReference"),
+      } });
+      await syncPaymentReminder(pcnId, paymentDeadline, paymentStatus);
+    } else {
+      await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: outcome === "PENDING" ? "AWAITING_DECISION" : outcome } });
+    }
+    if (outcome !== "PENDING") await resolveChallengeStatusChecks(challengeId);
   } catch (error) {
     actionError(detailPath, error);
   }
@@ -308,6 +358,51 @@ export async function updateChallenge(formData: FormData) {
   revalidatePath("/pcns");
   revalidatePath(detailPath);
   redirect(detailPath);
+}
+
+export async function recordSubsequentNotice(formData: FormData) {
+  await requireAdmin();
+  const pcnId = value(formData, "pcnId");
+  const detailPath = `/pcns/${pcnId}`;
+  try {
+    if (!pcnId) throw new Error("PCN is required");
+    const pcn = await prisma.pcn.findUnique({ where: { id: pcnId }, include: { vehicle: true } });
+    if (!pcn || value(formData, "pcnReference").toUpperCase() !== pcn.reference || normalizeUkRegistration(value(formData, "registration")) !== pcn.vehicle.registrationNormalized) {
+      throw new Error("Notice does not match this PCN and vehicle");
+    }
+    const evidenceDetails = optionalValue(formData, "evidenceDetails");
+    if (evidenceDetails && evidenceDetails.length > 3000) throw new Error("Additional evidence details are too long");
+    await prisma.subsequentNotice.create({ data: {
+      pcnId,
+      noticeType: enumValue(formData, "noticeType", noticeTypes),
+      receivedDate: requiredDate(formData, "receivedDate"),
+      hasNewInformation: value(formData, "hasNewInformation") === "yes",
+      evidenceDetails,
+    } });
+  } catch (error) {
+    actionError(detailPath, error);
+  }
+  revalidatePath("/");
+  revalidatePath("/pcns");
+  revalidatePath(detailPath);
+  redirect(`${detailPath}?message=Subsequent%20notice%20recorded`);
+}
+
+export async function saveInvoiceEvidence(formData: FormData) {
+  await requireAdmin();
+  const pcnId = value(formData, "pcnId");
+  const detailPath = `/pcns/${pcnId}`;
+  try {
+    if (!pcnId || !await prisma.pcn.findUnique({ where: { id: pcnId }, select: { id: true } })) throw new Error("PCN is required");
+    const fields = ["reference", "deliveryAddress", "billingAddress", "recipient", "supplier", "description", "deliveryTime", "otherFacts"] as const;
+    const data = Object.fromEntries(fields.map((field) => [field, optionalValue(formData, field)])) as Record<typeof fields[number], string | null>;
+    for (const field of fields) if ((data[field]?.length ?? 0) > 3000) throw new Error("One or more fields are too long");
+    if (data.deliveryTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(data.deliveryTime)) throw new Error("Delivery time must use HH:mm");
+    const evidence = { ...data, invoiceDate: optionalDate(formData, "invoiceDate"), deliveryDate: optionalDate(formData, "deliveryDate") };
+    await prisma.invoiceEvidence.upsert({ where: { pcnId }, create: { pcnId, ...evidence }, update: evidence });
+  } catch (error) { actionError(detailPath, error); }
+  revalidatePath(detailPath);
+  redirect(`${detailPath}?message=Invoice%20evidence%20saved`);
 }
 
 export async function deletePcn(formData: FormData) {

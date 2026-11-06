@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "AI generation is not configured. Write the challenge manually instead." }, { status: 503 });
 
   const { prisma } = await import("@/lib/prisma");
-  const pcn = await prisma.pcn.findUnique({ where: { id: pcnId }, include: { vehicle: true, issuer: true } });
+  const pcn = await prisma.pcn.findUnique({ where: { id: pcnId }, include: { vehicle: true, issuer: true, invoiceEvidence: true } });
   if (!pcn) return NextResponse.json({ error: "The PCN could not be found." }, { status: 404 });
 
   const pcnDetails = {
@@ -47,7 +47,8 @@ export async function POST(request: Request) {
     issueDate: pcn.issueDate.toISOString().slice(0, 10),
     noticeType: pcn.noticeType,
   };
-  const content: Array<Record<string, string>> = [{ type: "input_text", text: `Draft a concise, professional challenge in British English for manual submission. This is a ${stage.toLowerCase()} challenge to a ${pcn.issuer.type.toLowerCase()} issuer. Selected reason: ${reason}. Evidence selection: ${evidenceOption}. Additional circumstances: ${additionalCircumstances || "None supplied"}. PCN details: ${JSON.stringify(pcnDetails)}. Only state facts contained in these details or the uploaded evidence. Do not cite legislation or claim an exemption applies. For loading/unloading, do not say evidence proves an exemption. Request cancellation, use appropriate council/private terminology, and list material missing information separately.` }];
+  const invoice = pcn.invoiceEvidence ? { reference: pcn.invoiceEvidence.reference, invoiceDate: pcn.invoiceEvidence.invoiceDate?.toISOString().slice(0, 10), deliveryDate: pcn.invoiceEvidence.deliveryDate?.toISOString().slice(0, 10), deliveryAddress: pcn.invoiceEvidence.deliveryAddress, billingAddress: pcn.invoiceEvidence.billingAddress, recipient: pcn.invoiceEvidence.recipient, supplier: pcn.invoiceEvidence.supplier, description: pcn.invoiceEvidence.description, deliveryTime: pcn.invoiceEvidence.deliveryTime, otherFacts: pcn.invoiceEvidence.otherFacts } : null;
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: `Draft a concise, professional challenge in British English for manual submission. This is a ${stage.toLowerCase()} challenge to a ${pcn.issuer.type.toLowerCase()} issuer. Selected reason: ${reason}. Evidence selection: ${evidenceOption}. Additional circumstances: ${additionalCircumstances || "None supplied"}. Verified PCN: ${JSON.stringify(pcnDetails)}. Reviewed invoice facts: ${JSON.stringify(invoice)}. Invoice date is not proof of delivery; billing address is not delivery address. Flag inconsistent dates and missing facts. Only state facts in these details. Do not invent loading, delivery times, legal grounds or an exemption. Request cancellation and list material missing information separately.` }];
 
   if (evidenceFile instanceof File) {
     const data = Buffer.from(await evidenceFile.arrayBuffer()).toString("base64");

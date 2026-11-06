@@ -77,13 +77,19 @@ Keep `AUTH_SECRET` unchanged across redeployments or every administrator session
 
 ### AI-assisted PCN capture
 
+The primary capture path is **New PCN → Import from ChatGPT**. Copy the versioned prompt, attach a PCN photograph in any ChatGPT conversation, paste its single JSON object, validate, correct the review form, then save. The `pcn-1` object accepts nullable `reference`, `registration`, `issuerName`, `issuerType`, `noticeType`, `contraventionCode`, `contraventionDescription`, `contraventionLocation`, `contraventionDate`, `contraventionTime`, `issueDate`, `paymentDeadline`, `penaltyAmount`, and `notes`. Dates use `YYYY-MM-DD`, times `HH:mm`, and GBP amounts decimal text. Missing facts are `null`; explicit deadlines only. An existing reference is linked from the review screen so a later notice can be recorded against the case. Direct photograph extraction and manual entry remain available.
+
+For delivery invoices, open the PCN challenge workspace and choose **Extract Invoice with ChatGPT**. The `invoice-1` object accepts nullable `reference`, `invoiceDate`, `deliveryDate`, `deliveryAddress`, `billingAddress`, `recipient`, `supplier`, `description`, `deliveryTime`, and `otherFacts`. Validate and correct the facts before saving them against the PCN. The challenge editor uses these reviewed facts for text-only API generation or its **Copy Challenge Prompt** fallback. Original documents and raw JSON are not stored by this application.
+
 Set `OPENAI_API_KEY` and optionally `OPENAI_MODEL` to enable PCN document extraction. The default model is `gpt-4.1-mini`. The capture workflow sends a selected photo or PDF to the OpenAI Responses API only for the extraction request and does not save the document in this application or database. Requests set `store: false`, which disables response storage. Review OpenAI's retention terms for your account before using this feature with live documents.
 
 Without an API key, the capture page provides a clear manual-entry fallback.
 
 ### Automated reports and reminders
 
-Weekly management reports always use the fixed recipient in application configuration. A `SENT` record means Resend accepted the message, not that it reached the recipient’s inbox. Production email variables, domain verification, and Coolify schedules are documented in [Coolify deployment](#coolify-deployment).
+Weekly management reports always use the fixed recipient in application configuration. A `SENT` record means Resend accepted the message, not that it reached the recipient’s inbox. The weekday midday checklist email goes only to `ADMIN_EMAIL`, contains only actionable cases for that day, and is skipped when there is no work to do. Production email variables, domain verification, and Coolify schedules are documented in [Coolify deployment](#coolify-deployment).
+
+When a challenge is rejected, record the actual amount and payment deadline from the notice. The Friday management report is the principal notification; the existing two-day payment-deadline reminder is sent to the fixed management recipient while payment remains unconfirmed. Unpaid cases remain in reporting, not in the administrator’s daily checklist. A later notice is recorded against the existing PCN and only creates a one-off review task when it contains genuinely new information.
 
 To test the configured database connection without changing data:
 
@@ -156,8 +162,9 @@ Keep both endpoints private behind their bearer secret; administrator sessions d
 | --- | --- | --- |
 | Weekly manager report | `*/5 * * * *` | `wget -qO- --header="Authorization: Bearer $CRON_SECRET" --post-data='' http://127.0.0.1:3000/api/jobs/weekly-report` |
 | Personal reminders | `0 * * * *` | `wget -qO- --header="Authorization: Bearer $CRON_SECRET" --post-data='' http://127.0.0.1:3000/api/jobs/reminders` |
+| Personal daily checklist | `0 * * * *` | `wget -qO- --header="Authorization: Bearer $CRON_SECRET" --post-data='' http://127.0.0.1:3000/api/jobs/daily-checklist` |
 
-The frequent weekly trigger deliberately lets application code select Friday 07:00 in `Europe/London`, handling GMT/BST independently of the Coolify server timezone. Database job keys and email/reminder state prevent a repeated trigger or retry from duplicating an accepted report or notification. Coolify runs task cron expressions in the deployment-server timezone; see [scheduled tasks](https://coolify.io/docs/core/automation/scheduled-tasks/overview).
+The frequent weekly trigger deliberately lets application code select Friday 07:00 in `Europe/London`, handling GMT/BST independently of the Coolify server timezone. The hourly daily-checklist trigger lets application code select Monday-Friday 12:00 in `Europe/London`, so GMT/BST transitions do not depend on the Coolify server timezone. Database job keys and email/reminder state prevent a repeated trigger or retry from duplicating an accepted report, reminder or checklist briefing. The checklist endpoint requires both `ADMIN_EMAIL` and an HTTPS `AUTH_URL`; it returns a safe skipped result when either is unavailable or there are no actionable tasks. Coolify runs task cron expressions in the deployment-server timezone; see [scheduled tasks](https://coolify.io/docs/core/automation/scheduled-tasks/overview).
 
 ### Backup and recovery
 
@@ -177,3 +184,7 @@ Real-device testing has not been performed by this repository. Before go-live, u
 ## Database migrations
 
 The committed Prisma migrations define the current PCN, challenge, report, reminder and notification-job schema. For a future development schema change, update `prisma/schema.prisma`, create and review a migration locally with `npm run db:migrate`, then commit the migration directory. Production applies only committed migrations via `prisma migrate deploy`.
+
+### V1.0 deployment notes
+
+The pending additive migrations create daily checklist tasks, subsequent-notice history and one reviewed invoice-evidence record per PCN. The container entrypoint applies these migrations before Next.js starts; back up the separate Coolify PostgreSQL resource before deployment. No new environment variables or scheduled tasks are required beyond the three jobs above. Confirm the public HTTPS login and both mobile and desktop import dialogs with fictional data after deployment; local automated checks do not replace a real phone camera and touch test.

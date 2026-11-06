@@ -70,6 +70,7 @@ enum ReminderStatus {
 enum JobType {
   WEEKLY_REPORT
   REMINDER_DELIVERY
+  DAILY_CHECKLIST
 }
 
 enum JobStatus {
@@ -81,6 +82,13 @@ enum JobStatus {
 
 enum UserRole {
   ADMIN
+}
+
+enum ChecklistTaskType {
+  PREPARE_CHALLENGE
+  CHALLENGE_STATUS_CHECK
+  REVIEW_DECISION
+  REVIEW_SUBSEQUENT_NOTICE
 }
 
 model User {
@@ -136,6 +144,9 @@ model Pcn {
   challenges            Challenge[]
   reportEntries         ReportEntry[]
   reminders             Reminder[]
+  checklistTasks        ChecklistTask[]
+  subsequentNotices     SubsequentNotice[]
+  invoiceEvidence       InvoiceEvidence?
 
   @@index([vehicleId])
   @@index([issuerId])
@@ -157,6 +168,7 @@ model Challenge {
   updatedAt            DateTime         @updatedAt
   pcn                  Pcn              @relation(fields: [pcnId], references: [id], onDelete: Cascade)
   reminders            Reminder[]
+  checklistTasks       ChecklistTask[]
 
   @@index([pcnId, stage])
   @@index([outcome, nextStatusCheckDate])
@@ -211,10 +223,63 @@ model Reminder {
   pcn         Pcn            @relation(fields: [pcnId], references: [id], onDelete: Cascade)
   challenge   Challenge?     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   delivery    ReminderDelivery?
+  checklistTasks ChecklistTask[]
 
   @@index([status, dueAt])
   @@index([pcnId, type])
   @@index([challengeId])
+}
+
+model ChecklistTask {
+  id          String            @id @default(cuid())
+  taskKey     String            @unique
+  type        ChecklistTaskType
+  pcnId       String
+  challengeId String?
+  reminderId  String?
+  dueAt       DateTime
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  pcn         Pcn               @relation(fields: [pcnId], references: [id], onDelete: Cascade)
+  challenge   Challenge?        @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  reminder    Reminder?         @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+
+  @@index([completedAt, dueAt])
+  @@index([pcnId, type])
+}
+
+model SubsequentNotice {
+  id                String     @id @default(cuid())
+  pcnId             String
+  noticeType        NoticeType
+  receivedDate      DateTime   @db.Date
+  hasNewInformation Boolean    @default(false)
+  evidenceDetails   String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  pcn               Pcn        @relation(fields: [pcnId], references: [id], onDelete: Cascade)
+
+  @@index([pcnId, receivedDate])
+  @@index([hasNewInformation])
+}
+
+model InvoiceEvidence {
+  id              String   @id @default(cuid())
+  pcnId           String   @unique
+  reference       String?
+  invoiceDate     DateTime? @db.Date
+  deliveryDate    DateTime? @db.Date
+  deliveryAddress String?
+  billingAddress  String?
+  recipient       String?
+  supplier        String?
+  description     String?
+  deliveryTime    String?
+  otherFacts      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  pcn             Pcn      @relation(fields: [pcnId], references: [id], onDelete: Cascade)
 }
 
 model ReminderDelivery {

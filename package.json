@@ -21,6 +21,9 @@
     "db:verify-report-workflow": "tsx scripts/verify-report-workflow.ts",
     "reports:preview": "tsx scripts/preview-executive-reports.ts",
     "db:verify-email-jobs": "tsx scripts/verify-email-jobs.ts",
+    "db:verify-checklist": "tsx scripts/verify-checklist.ts",
+    "db:verify-lifecycle": "tsx scripts/verify-simplified-lifecycle.ts",
+    "test:chatgpt-import": "tsx scripts/verify-chatgpt-import.ts",
     "admin:setup": "node scripts/admin-account.mjs setup",
     "admin:reset": "node scripts/admin-account.mjs reset",
     "test:auth": "tsx scripts/verify-authentication.ts"

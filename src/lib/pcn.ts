@@ -14,8 +14,8 @@ export const challengeStages = ["INITIAL", "FORMAL", "INDEPENDENT"] as const;
 export const challengeOutcomes = ["PENDING", "ACCEPTED", "REJECTED"] as const;
 
 const labels: Record<string, string> = {
-  AWAITING_CHALLENGE: "Awaiting challenge",
-  AWAITING_DECISION: "Awaiting decision",
+  AWAITING_CHALLENGE: "Awaiting challenge preparation",
+  AWAITING_DECISION: "Challenge submitted / awaiting decision",
   NOT_REQUIRED: "Not required",
   PAYMENT_REQUIRED: "Payment required",
   PAYMENT_UNCONFIRMED: "Payment unconfirmed",

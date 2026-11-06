@@ -191,7 +191,8 @@ export async function buildReportPdf(reportId: string): Promise<Uint8Array | nul
       rectangle(page, 42, y - 24, 511, 28, colour.white, colour.line);
       text(page, entry.pcn.vehicle.registrationDisplay, 48, y - 10, 9, "bold", colour.forest);
       text(page, entry.pcn.reference, 190, y - 10, 8, "regular", colour.ink);
-      text(page, statusLabel(entry.challengeStatus), 424, y - 10, 8, "bold", entry.challengeStatus === "ACCEPTED" ? colour.sage : entry.challengeStatus === "REJECTED" ? colour.terracotta : colour.amber);
+      const compactStatus = entry.challengeStatus === "AWAITING_DECISION" ? "Awaiting decision" : entry.challengeStatus === "AWAITING_CHALLENGE" ? "Awaiting challenge" : statusLabel(entry.challengeStatus);
+      text(page, compactStatus, 424, y - 10, 8, "bold", entry.challengeStatus === "ACCEPTED" ? colour.sage : entry.challengeStatus === "REJECTED" ? colour.terracotta : colour.amber);
       y -= 32;
     }
   }
