@@ -2,7 +2,7 @@ import "dotenv/config";
 import { writeFile } from "node:fs/promises";
 
 import { buildReportPdf } from "../src/lib/report-pdf";
-import { createOrGetReport } from "../src/lib/reporting";
+import { createOrGetReport, reportForPdf } from "../src/lib/reporting";
 import { prisma } from "../src/lib/prisma";
 import { getOrCreateVehicle } from "../src/lib/vehicles";
 
@@ -13,14 +13,17 @@ async function main() {
   const reportIds: string[] = [];
   let pcnId: string | undefined;
   try {
-    const pcn = await prisma.pcn.create({ data: { reference: `REPORT-${suffix}`, vehicleId: vehicle.id, issuerId: issuer.id, contraventionLocation: "Report Street", contraventionDate: new Date("2040-01-02T00:00:00.000Z"), issueDate: new Date("2040-01-03T00:00:00.000Z"), noticeType: "ORIGINAL_PCN", challengeStatus: "AWAITING_DECISION", paymentStatus: "PAYMENT_REQUIRED", paymentDeadline: new Date("2040-01-20T00:00:00.000Z") } });
+    const pcn = await prisma.pcn.create({ data: { reference: `REPORT-${suffix}`, vehicleId: vehicle.id, issuerId: issuer.id, contraventionLocation: "Report Street", contraventionDate: new Date("2040-01-02T00:00:00.000Z"), issueDate: new Date("2040-01-03T00:00:00.000Z"), noticeType: "ORIGINAL_PCN", challengeStatus: "AWAITING_DECISION", paymentStatus: "PAYMENT_REQUIRED", paymentDeadline: new Date("2040-01-20T00:00:00.000Z"), paymentAmountPence: 6500 } });
     pcnId = pcn.id;
     await prisma.challenge.create({ data: { pcnId, stage: "INITIAL", submissionDate: new Date("2040-01-04T00:00:00.000Z"), outcome: "PENDING" } });
+    await prisma.challenge.create({ data: { pcnId, stage: "FORMAL", submissionDate: new Date("2040-01-05T00:00:00.000Z"), outcome: "ACCEPTED", decisionDate: new Date("2040-01-05T00:00:00.000Z") } });
     const weekOne = await createOrGetReport("WEEKLY", new Date("2040-01-06T09:00:00.000Z")); reportIds.push(weekOne.id);
     const weekOneAgain = await createOrGetReport("WEEKLY", new Date("2040-01-06T12:00:00.000Z"));
     if (weekOne.id !== weekOneAgain.id) throw new Error("Repeated weekly generation created a second report");
     const entryOne = weekOne.entries.find((entry) => entry.pcnId === pcnId);
     if (entryOne?.paymentNoticeNumber !== 1) throw new Error("First payment notice was not recorded");
+    const summary = await reportForPdf(weekOne.id);
+    if (!summary || summary.submitted !== 1 || summary.accepted !== 1 || summary.outcomeCounts.awaiting !== 1 || summary.report.entries[0]?.paymentAmountPence !== 6500) throw new Error("Executive report counts or payment amount were incorrect");
     const weekTwo = await createOrGetReport("WEEKLY", new Date("2040-01-13T09:00:00.000Z")); reportIds.push(weekTwo.id);
     const entryTwo = weekTwo.entries.find((entry) => entry.pcnId === pcnId);
     if (entryTwo?.paymentNoticeNumber !== 2) throw new Error("Outstanding payment did not carry over as a second notice");

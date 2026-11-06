@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { ThemeToggle } from "@/components/theme-toggle";
+import { WorkspaceShell } from "@/components/workspace-shell";
 
 import "./globals.css";
 
@@ -11,11 +11,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html className="dark" lang="en-GB" suppressHydrationWarning>
+    <html lang="en-GB" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: 'try{if(localStorage.getItem("pcn-theme")==="light")document.documentElement.classList.remove("dark")}catch{}' }} />
+        <script dangerouslySetInnerHTML={{ __html: 'try{const t=localStorage.getItem("pcn-theme");if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch{}' }} />
       </head>
-      <body>{children}<ThemeToggle /></body>
+      <body><WorkspaceShell>{children}</WorkspaceShell></body>
     </html>
   );
 }

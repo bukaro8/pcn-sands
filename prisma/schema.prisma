@@ -126,6 +126,7 @@ model Pcn {
   challengeStatus       ChallengeStatus @default(AWAITING_CHALLENGE)
   paymentStatus         PaymentStatus   @default(NOT_REQUIRED)
   paymentDeadline       DateTime?       @db.Date
+  paymentAmountPence    Int?
   paymentReference      String?
   notes                 String?
   createdAt             DateTime        @default(now())
@@ -186,6 +187,7 @@ model ReportEntry {
   challengeStatus     ChallengeStatus
   paymentStatus       PaymentStatus
   paymentDeadline     DateTime?       @db.Date
+  paymentAmountPence  Int?
   paymentNoticeNumber Int?
   report              ReportHistory   @relation(fields: [reportId], references: [id], onDelete: Cascade)
   pcn                 Pcn             @relation(fields: [pcnId], references: [id], onDelete: Restrict)

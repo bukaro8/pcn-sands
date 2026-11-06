@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PartyPopper } from "lucide-react";
 
 import { completeReminder, updateChallenge, updatePcn } from "@/app/actions";
 import { ChallengeDraftEditor } from "@/components/challenge-draft-editor";
@@ -58,11 +59,12 @@ export default async function PcnDetailPage({ params, searchParams }: { params: 
 
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
         {query.error && <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">{query.error}</p>}
+        {pcn.challengeStatus === "ACCEPTED" && <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800" role="status"><span className="flex size-10 items-center justify-center rounded-full bg-emerald-100"><PartyPopper className="size-5" /></span><div><strong>Challenge accepted — lovely news!</strong><p className="mt-1 text-sm">This PCN has been recorded as accepted.</p></div></div>}
 
         <section className="grid gap-4 md:grid-cols-3">
           <Card><CardHeader><CardTitle className="text-sm text-slate-500">Vehicle</CardTitle></CardHeader><CardContent><p className="text-lg font-semibold">{pcn.vehicle.registrationDisplay}</p><p className="mt-2 text-sm text-slate-600">{pcn.issuer.name}</p></CardContent></Card>
           <Card><CardHeader><CardTitle className="text-sm text-slate-500">Challenge</CardTitle></CardHeader><CardContent><StatusBadge status={pcn.challengeStatus} /><p className="mt-3 text-sm text-slate-600">Issue date: {formatDate(pcn.issueDate)}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle className="text-sm text-slate-500">Payment</CardTitle></CardHeader><CardContent><StatusBadge status={pcn.paymentStatus} /><p className={isOverdue(pcn.paymentStatus, pcn.paymentDeadline) ? "mt-3 text-sm font-medium text-rose-700" : "mt-3 text-sm text-slate-600"}>Deadline: {formatDate(pcn.paymentDeadline)}{isOverdue(pcn.paymentStatus, pcn.paymentDeadline) ? " (overdue)" : ""}</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-sm text-slate-500">Payment</CardTitle></CardHeader><CardContent><StatusBadge status={pcn.paymentStatus} /><p className="mt-3 text-sm text-slate-600">Amount: {pcn.paymentAmountPence == null ? "Not recorded" : new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pcn.paymentAmountPence / 100)}</p><p className={isOverdue(pcn.paymentStatus, pcn.paymentDeadline) ? "mt-1 text-sm font-medium text-rose-700" : "mt-1 text-sm text-slate-600"}>Deadline: {formatDate(pcn.paymentDeadline)}{isOverdue(pcn.paymentStatus, pcn.paymentDeadline) ? " (overdue)" : ""}</p></CardContent></Card>
         </section>
 
         <Card>

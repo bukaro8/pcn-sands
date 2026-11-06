@@ -15,7 +15,7 @@ const tones: Record<string, string> = {
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   return (
-    <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-medium", tones[status] ?? "bg-slate-100 text-slate-700", className)}>
+    <span className={cn("inline-flex items-center rounded-full border border-transparent px-2.5 py-1 text-xs font-semibold", tones[status] ?? "bg-slate-100 text-slate-700", className)}>
       {statusLabel(status)}
     </span>
   );

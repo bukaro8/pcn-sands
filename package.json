@@ -19,6 +19,7 @@
     "test:challenge-generation": "tsx scripts/test-challenge-generation.ts",
     "db:verify-challenge-workflow": "tsx scripts/verify-challenge-workflow.ts",
     "db:verify-report-workflow": "tsx scripts/verify-report-workflow.ts",
+    "reports:preview": "tsx scripts/preview-executive-reports.ts",
     "db:verify-email-jobs": "tsx scripts/verify-email-jobs.ts",
     "admin:setup": "node scripts/admin-account.mjs setup",
     "admin:reset": "node scripts/admin-account.mjs reset",

@@ -1,6 +1,7 @@
 import "dotenv/config";
 
-import { processPersonalReminders, processWeeklyReport, isWeeklyReportWindow } from "../src/lib/jobs";
+import { processPersonalReminders, processWeeklyReport, isWeeklyReportWindow, sendReportEmail } from "../src/lib/jobs";
+import { createOrGetReport } from "../src/lib/reporting";
 import { prisma } from "../src/lib/prisma";
 import { getOrCreateVehicle } from "../src/lib/vehicles";
 
@@ -21,6 +22,10 @@ async function main() {
     if (weekly.status !== "succeeded" || sent.length !== 1 || !String(sent[0]?.to).includes("Nimesh_joshi1@hotmail.com") || !JSON.stringify(sent[0]).includes("attachments")) throw new Error("Weekly report email verification failed");
     if ("reportId" in weekly) reportIds.push(weekly.reportId);
     const duplicate = await processWeeklyReport(new Date("2039-06-03T06:05:00.000Z")); if (duplicate.status !== "skipped" || sent.length !== 1) throw new Error("Duplicate weekly report was sent");
+    const monthly = await createOrGetReport("MONTHLY", new Date("2039-06-15T09:00:00.000Z")); reportIds.push(monthly.id);
+    const monthlyResult = await sendReportEmail(monthly.id);
+    const monthlyPayload = sent.at(-1);
+    if (!monthlyResult.sent || !String(monthlyPayload?.subject).includes("Sands Monthly PCN Report") || !String(monthlyPayload?.html).includes("PCA · PCN Coordination")) throw new Error("Monthly executive report email verification failed");
     globalThis.fetch = (async () => new Response(JSON.stringify({ message: "failure" }), { status: 500 })) as typeof fetch;
     const failed = await processWeeklyReport(new Date("2039-06-10T06:00:00.000Z")); if (failed.status !== "failed") throw new Error("Failed email handling was not recorded");
     globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => { sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return new Response(JSON.stringify({ id: `email_${sent.length}` }), { status: 200 }); }) as typeof fetch;

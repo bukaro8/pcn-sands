@@ -1,7 +1,8 @@
 import { appConfig } from "@/lib/config";
 import { sendEmail } from "@/lib/email";
+import { buildReportEmailHtml } from "@/lib/report-email";
 import { buildReportPdf } from "@/lib/report-pdf";
-import { createOrGetReport, formatDate, reportingPeriod } from "@/lib/reporting";
+import { createOrGetReport, formatDate, reportForPdf, reportingPeriod } from "@/lib/reporting";
 import { prisma } from "@/lib/prisma";
 
 function londonParts(now: Date) {
@@ -31,13 +32,17 @@ export async function sendReportEmail(reportId: string) {
   if (report.emailDeliveryStatus === "SENT") return { sent: false, reason: "already-sent" as const };
   const pdf = await buildReportPdf(reportId);
   if (!pdf) throw new Error("Report PDF could not be generated");
+  const reportData = await reportForPdf(reportId);
+  if (!reportData) throw new Error("Report data could not be loaded");
   const period = `${formatDate(report.periodStart)} - ${formatDate(report.periodEnd)}`;
+  const reportLabel = report.type === "WEEKLY" ? "Sands Weekly PCN Report" : "Sands Monthly PCN Report";
+  const payments = reportData.report.entries.filter((entry) => entry.paymentNoticeNumber && entry.paymentStatus !== "PAID");
   try {
     const result = await sendEmail({
       to: appConfig.managerWeeklyReportRecipient,
-      subject: `Sands PCN Management report - ${period}`,
-      html: `<p>PCN management report for <strong>${period}</strong>.</p><p>The attached PDF includes challenge outcomes, outstanding payment notices and deadlines.</p>`,
-      attachment: { filename: `sands-pcn-report-${report.id}.pdf`, content: Buffer.from(pdf).toString("base64") },
+      subject: `${reportLabel} - ${period}`,
+      html: buildReportEmailHtml({ type: report.type, periodStart: report.periodStart, periodEnd: report.periodEnd, submitted: reportData.submitted, accepted: reportData.accepted, rejected: reportData.rejected, pending: reportData.pending, payments }),
+      attachment: { filename: `${report.type === "WEEKLY" ? "sands-weekly-pcn-report" : "sands-monthly-pcn-report"}-${report.periodStart.toISOString().slice(0, 10)}.pdf`, content: Buffer.from(pdf).toString("base64") },
     });
     await prisma.reportHistory.update({ where: { id: report.id }, data: { emailDeliveryStatus: "SENT", emailSentAt: new Date(), emailAttemptedAt: new Date(), emailProviderId: result.id, emailError: null } });
     return { sent: true, reason: "accepted" as const };

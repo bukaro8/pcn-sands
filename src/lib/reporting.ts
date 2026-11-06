@@ -53,7 +53,7 @@ export async function createOrGetReport(type: ReportType, now = new Date()) {
       for (const pcn of pcns) {
         const outstanding = pcn.paymentStatus === "PAYMENT_REQUIRED" || pcn.paymentStatus === "PAYMENT_UNCONFIRMED";
         const previous = outstanding ? await tx.reportEntry.findFirst({ where: { pcnId: pcn.id, paymentNoticeNumber: { not: null } }, orderBy: { paymentNoticeNumber: "desc" }, select: { paymentNoticeNumber: true } }) : null;
-        await tx.reportEntry.create({ data: { reportId: report.id, pcnId: pcn.id, challengeStatus: pcn.challengeStatus, paymentStatus: pcn.paymentStatus, paymentDeadline: pcn.paymentDeadline, paymentNoticeNumber: outstanding ? (previous?.paymentNoticeNumber ?? 0) + 1 : null } });
+        await tx.reportEntry.create({ data: { reportId: report.id, pcnId: pcn.id, challengeStatus: pcn.challengeStatus, paymentStatus: pcn.paymentStatus, paymentDeadline: pcn.paymentDeadline, paymentAmountPence: pcn.paymentAmountPence, paymentNoticeNumber: outstanding ? (previous?.paymentNoticeNumber ?? 0) + 1 : null } });
       }
       return tx.reportHistory.findUniqueOrThrow({ where: { id: report.id }, include: { entries: true } });
     });
@@ -67,9 +67,32 @@ export async function createOrGetReport(type: ReportType, now = new Date()) {
 export async function reportForPdf(reportId: string) {
   const report = await prisma.reportHistory.findUnique({ where: { id: reportId }, include: { entries: { include: { pcn: { include: { vehicle: true, challenges: true } } }, orderBy: { pcn: { reference: "asc" } } } } });
   if (!report) return null;
-  const submitted = report.entries.flatMap((entry) => entry.pcn.challenges).filter((challenge) => challenge.submissionDate && challenge.submissionDate >= report.periodStart && challenge.submissionDate <= report.periodEnd).length;
-  const accepted = report.entries.flatMap((entry) => entry.pcn.challenges).filter((challenge) => challenge.decisionDate && challenge.decisionDate >= report.periodStart && challenge.decisionDate <= report.periodEnd && challenge.outcome === "ACCEPTED").length;
-  const rejected = report.entries.flatMap((entry) => entry.pcn.challenges).filter((challenge) => challenge.decisionDate && challenge.decisionDate >= report.periodStart && challenge.decisionDate <= report.periodEnd && challenge.outcome === "REJECTED").length;
-  const pending = report.entries.flatMap((entry) => entry.pcn.challenges).filter((challenge) => challenge.outcome === "PENDING" && challenge.submissionDate && challenge.submissionDate <= report.periodEnd).length;
-  return { report, submitted, accepted, rejected, pending };
+  const inPeriod = (date: Date | null) => Boolean(date && date >= report.periodStart && date <= report.periodEnd);
+  const submittedCases = new Set<string>();
+  const acceptedCases = new Set<string>();
+  const rejectedCases = new Set<string>();
+  for (const entry of report.entries) {
+    for (const challenge of entry.pcn.challenges) {
+      if (inPeriod(challenge.submissionDate)) submittedCases.add(entry.pcnId);
+      if (inPeriod(challenge.decisionDate) && challenge.outcome === "ACCEPTED") acceptedCases.add(entry.pcnId);
+      if (inPeriod(challenge.decisionDate) && challenge.outcome === "REJECTED") rejectedCases.add(entry.pcnId);
+    }
+  }
+  const outcomeCounts = report.entries.reduce((counts, entry) => {
+    if (entry.challengeStatus === "AWAITING_DECISION") counts.awaiting += 1;
+    if (entry.challengeStatus === "ACCEPTED") counts.accepted += 1;
+    if (entry.challengeStatus === "REJECTED") counts.rejected += 1;
+    return counts;
+  }, { awaiting: 0, accepted: 0, rejected: 0 });
+  const decided = acceptedCases.size + rejectedCases.size;
+  return {
+    report,
+    submitted: submittedCases.size,
+    accepted: acceptedCases.size,
+    rejected: rejectedCases.size,
+    pending: outcomeCounts.awaiting,
+    outcomeCounts,
+    outcomeTotal: outcomeCounts.awaiting + outcomeCounts.accepted + outcomeCounts.rejected,
+    successRate: decided ? Math.round((acceptedCases.size / decided) * 100) : null,
+  };
 }

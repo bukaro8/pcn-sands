@@ -32,6 +32,13 @@ function optionalDate(formData: FormData, name: string): Date | null {
   return value(formData, name) ? requiredDate(formData, name) : null;
 }
 
+function optionalMoneyInPence(formData: FormData, name: string): number | null {
+  const raw = value(formData, name);
+  if (!raw) return null;
+  if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(raw)) throw new Error("Payment amount must be a valid non-negative amount");
+  return Math.round(Number(raw) * 100);
+}
+
 function enumValue<T extends readonly string[]>(formData: FormData, name: string, options: T): T[number] {
   const selected = value(formData, name);
   if (!options.includes(selected)) throw new Error(`${name} is invalid`);
@@ -51,7 +58,7 @@ function actionError(path: string, error: unknown): never {
     "Challenge text is too long", "Only an unsent draft can be updated", "Challenge is required",
     "Challenge does not belong to this PCN", "This challenge has already been marked as submitted",
     "Challenge text is required before submission", "A decision date is required for an accepted or rejected challenge",
-    "This PCN is included in report history and cannot be deleted",
+    "This PCN is included in report history and cannot be deleted", "Payment amount must be a valid non-negative amount",
   ];
   let message: string;
   if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
@@ -141,6 +148,7 @@ function parsePcn(formData: FormData) {
     challengeStatus: enumValue(formData, "challengeStatus", challengeStatuses),
     paymentStatus: enumValue(formData, "paymentStatus", paymentStatuses),
     paymentDeadline: optionalDate(formData, "paymentDeadline"),
+    paymentAmountPence: optionalMoneyInPence(formData, "paymentAmount"),
     paymentReference: optionalValue(formData, "paymentReference"),
     notes: optionalValue(formData, "notes"),
   };
