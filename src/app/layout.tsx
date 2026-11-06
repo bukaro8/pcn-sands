@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 
+import { ThemeToggle } from "@/components/theme-toggle";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,8 +11,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-GB">
-      <body>{children}</body>
+    <html className="dark" lang="en-GB" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: 'try{if(localStorage.getItem("pcn-theme")==="light")document.documentElement.classList.remove("dark")}catch{}' }} />
+      </head>
+      <body>{children}<ThemeToggle /></body>
     </html>
   );
 }
