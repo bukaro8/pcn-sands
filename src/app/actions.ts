@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
+import { classifyDatabaseError, logDatabaseError } from "@/lib/database-errors";
 import { challengeOutcomes, challengeStages, challengeStatuses, noticeTypes, paymentStatuses } from "@/lib/pcn";
 import { getOrCreateVehicle } from "@/lib/vehicles";
 import { createOrGetReport } from "@/lib/reporting";
@@ -42,7 +43,23 @@ function issuerNormalizedName(name: string): string {
 }
 
 function actionError(path: string, error: unknown): never {
-  const message = error instanceof Error ? error.message : "Unable to save the PCN";
+  const safeMessages = [
+    "Selected issuer no longer exists", "Select an issuer or enter a new issuer name", "Issuer name is too long",
+    "Issuer challenge URL must be valid", "Reference, vehicle registration and location are required",
+    "One or more fields are too long", "A PCN with this reference already exists", "PCN is required",
+    "A challenge for this stage and submission date already exists", "Write or generate challenge text before saving a draft",
+    "Challenge text is too long", "Only an unsent draft can be updated", "Challenge is required",
+    "Challenge does not belong to this PCN", "This challenge has already been marked as submitted",
+    "Challenge text is required before submission", "A decision date is required for an accepted or rejected challenge",
+    "This PCN is included in report history and cannot be deleted",
+  ];
+  let message: string;
+  if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
+    message = error.message;
+  } else {
+    logDatabaseError("PCN action", error);
+    message = classifyDatabaseError(error).explanation;
+  }
   redirect(`${path}${path.includes("?") ? "&" : "?"}error=${encodeURIComponent(message)}`);
 }
 
@@ -308,8 +325,9 @@ export async function generateReport(formData: FormData) {
   try {
     const report = await createOrGetReport(type);
     reportId = report.id;
-  } catch {
-    redirect("/reports?error=Unable%20to%20generate%20report");
+  } catch (error) {
+    logDatabaseError("Report generation", error);
+    redirect(`/reports?error=${encodeURIComponent(classifyDatabaseError(error).explanation)}`);
   }
   revalidatePath("/reports");
   redirect(`/reports?generated=${reportId!}`);
@@ -334,8 +352,9 @@ export async function completeReminder(formData: FormData) {
   const pcnId = value(formData, "pcnId");
   try {
     await prisma.reminder.update({ where: { id: reminderId }, data: { status: "COMPLETED", completedAt: new Date() } });
-  } catch {
-    redirect(`/pcns/${pcnId}?error=Unable%20to%20complete%20reminder`);
+  } catch (error) {
+    logDatabaseError("Reminder completion", error);
+    redirect(`/pcns/${pcnId}?error=${encodeURIComponent(classifyDatabaseError(error).explanation)}`);
   }
   revalidatePath(`/pcns/${pcnId}`);
   redirect(`/pcns/${pcnId}`);

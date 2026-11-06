@@ -4,11 +4,11 @@ import { notFound } from "next/navigation";
 import { completeReminder, updateChallenge, updatePcn } from "@/app/actions";
 import { ChallengeDraftEditor } from "@/components/challenge-draft-editor";
 import { DeletePcnButton } from "@/components/delete-pcn-button";
+import { DatabaseFailure } from "@/components/database-failure";
 import { PcnForm } from "@/components/pcn-form";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { challengeOutcomes, dateInputValue, formatDate, isOverdue, statusLabel } from "@/lib/pcn";
-import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,10 @@ const inputClass = "mt-1 block w-full rounded-md border border-slate-300 bg-whit
 
 export default async function PcnDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const [pcn, issuers] = await Promise.all([
+  let result;
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    result = await Promise.all([
     prisma.pcn.findUnique({
       where: { id },
       include: {
@@ -27,7 +30,11 @@ export default async function PcnDetailPage({ params, searchParams }: { params: 
       },
     }),
     prisma.issuer.findMany({ select: { id: true, name: true, type: true }, orderBy: { name: "asc" } }),
-  ]);
+    ]);
+  } catch (error) {
+    return <DatabaseFailure error={error} operation="PCN detail load" retryPath={`/pcns/${id}`} />;
+  }
+  const [pcn, issuers] = result;
 
   if (!pcn) notFound();
 

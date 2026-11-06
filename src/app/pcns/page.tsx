@@ -2,9 +2,9 @@ import Link from "next/link";
 
 import type { ChallengeStatus, PaymentStatus, Prisma } from "@/generated/prisma/client";
 import { StatusBadge } from "@/components/status-badge";
+import { DatabaseFailure } from "@/components/database-failure";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { challengeStatuses, isOverdue, paymentStatuses, statusLabel } from "@/lib/pcn";
-import { prisma } from "@/lib/prisma";
 import { normalizeUkRegistration } from "@/lib/vehicles";
 
 export const dynamic = "force-dynamic";
@@ -19,11 +19,18 @@ export default async function PcnListPage({ searchParams }: { searchParams: Prom
   if (params.issuerId) where.issuerId = params.issuerId;
   if (params.vehicleId) where.vehicleId = params.vehicleId;
 
-  const [pcns, issuers, vehicles] = await Promise.all([
+  let result;
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    result = await Promise.all([
     prisma.pcn.findMany({ where, include: { vehicle: true, issuer: true }, orderBy: [{ paymentDeadline: "asc" }, { updatedAt: "desc" }] }),
     prisma.issuer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.vehicle.findMany({ select: { id: true, registrationDisplay: true }, orderBy: { registrationNormalized: "asc" } }),
-  ]);
+    ]);
+  } catch (error) {
+    return <DatabaseFailure error={error} operation="PCN list load" retryPath="/pcns" />;
+  }
+  const [pcns, issuers, vehicles] = result;
 
   return <main className="min-h-screen bg-slate-50"><header className="border-b bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8"><div><Link className="text-sm text-slate-600 underline" href="/">Dashboard</Link><h1 className="mt-1 text-xl font-semibold">PCNs</h1></div><Link className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700" href="/pcns/new">Add PCN</Link></div></header><div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">{params.message && <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">{params.message}</p>}<Card><CardHeader><CardTitle>Search and filter</CardTitle></CardHeader><CardContent><form className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"><label className="text-sm font-medium">Search<input className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" defaultValue={search} name="search" placeholder="Reference, vehicle or issuer" /></label><label className="text-sm font-medium">Challenge<select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" defaultValue={params.challengeStatus ?? ""} name="challengeStatus"><option value="">All</option>{challengeStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><label className="text-sm font-medium">Payment<select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" defaultValue={params.paymentStatus ?? ""} name="paymentStatus"><option value="">All</option>{paymentStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><label className="text-sm font-medium">Issuer<select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" defaultValue={params.issuerId ?? ""} name="issuerId"><option value="">All</option>{issuers.map((issuer) => <option key={issuer.id} value={issuer.id}>{issuer.name}</option>)}</select></label><label className="text-sm font-medium">Vehicle<select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" defaultValue={params.vehicleId ?? ""} name="vehicleId"><option value="">All</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.registrationDisplay}</option>)}</select></label><div className="flex items-end gap-3"><button className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white" type="submit">Apply filters</button><Link className="px-2 py-2 text-sm font-medium underline" href="/pcns">Clear</Link></div></form></CardContent></Card><Card><CardHeader><CardTitle>{pcns.length} PCN{pcns.length === 1 ? "" : "s"}</CardTitle></CardHeader><CardContent>{pcns.length ? <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="border-b text-slate-500"><tr><th className="pb-3 font-medium">Reference</th><th className="pb-3 font-medium">Vehicle</th><th className="pb-3 font-medium">Issuer</th><th className="pb-3 font-medium">Challenge</th><th className="pb-3 font-medium">Payment</th><th className="pb-3 font-medium">Deadline</th></tr></thead><tbody>{pcns.map((pcn) => <tr className="border-b border-slate-100 last:border-0" key={pcn.id}><td className="py-3 font-medium"><Link className="underline" href={`/pcns/${pcn.id}`}>{pcn.reference}</Link></td><td className="py-3">{pcn.vehicle.registrationDisplay}</td><td className="py-3">{pcn.issuer.name}</td><td className="py-3"><StatusBadge status={pcn.challengeStatus} /></td><td className="py-3"><StatusBadge status={pcn.paymentStatus} /></td><td className={isOverdue(pcn.paymentStatus, pcn.paymentDeadline) ? "py-3 font-medium text-rose-700" : "py-3"}>{pcn.paymentDeadline ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(pcn.paymentDeadline) : "—"}</td></tr>)}</tbody></table></div> : <p className="text-sm text-slate-600">No PCNs match these filters.</p>}</CardContent></Card></div></main>;
 }

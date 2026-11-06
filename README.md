@@ -56,24 +56,24 @@ The application is available at `http://localhost:3000`. The health endpoint is 
 
 ### Administrator authentication
 
-Every dashboard, PCN, report, upload and AI endpoint requires the single administrator session. There is no registration flow or public account creation. Before the first deployment, create secrets on a trusted machine:
+Every dashboard, PCN, report, upload and AI endpoint requires the single administrator session. There is no registration flow or public account creation. Create a stable session secret:
 
 ```sh
 npx auth secret
-npm run auth:hash-password
 ```
 
-`npx auth secret` creates a random `AUTH_SECRET`. The password command reads a new password and confirmation without echoing either value, then prints only an Argon2id hash. Use a unique password of at least 14 characters and put these values in Coolify as secrets:
+`npx auth secret` creates a random `AUTH_SECRET`. Set the following environment variables, apply migrations, then run `npm run admin:setup` in an interactive terminal with access to the same PostgreSQL database. The command reads a password and confirmation without echoing or printing them, hashes the password with Argon2id, and stores only the hash in PostgreSQL. Use a unique password of at least 14 characters. It refuses to overwrite an existing account. To change the password later, explicitly run `npm run admin:reset` in the same environment. Keep database backups before a reset.
 
 | Variable | Purpose |
 | --- | --- |
 | `AUTH_SECRET` | Stable random secret used to encrypt/sign Auth.js sessions. |
 | `ADMIN_USERNAME` | The sole administrator username. |
-| `ADMIN_PASSWORD_HASH` | Output of `npm run auth:hash-password`; never the plaintext password. |
+| `ADMIN_EMAIL` | Administrator email and personal reminder recipient. |
+| `AUTH_URL` | Public HTTPS application URL in production. |
 
-The login form uses standard `username` and `current-password` autocomplete fields for browser password managers. Sessions are HTTP-only, `SameSite=Lax`, secure cookies in production, and expire after eight hours. Failed administrator sign-ins are limited to five attempts per username and validated client IP in fifteen minutes; the app returns the same generic error for an invalid username, invalid password, and a temporary lock. Coolify's trusted reverse proxy must supply the actual client IP as the first `X-Forwarded-For` address. If no valid client IP is supplied, the app does not create a shared lockout key; check proxy forwarding before relying on login throttling for those requests.
+The login form uses standard `username` and `current-password` autocomplete fields for browser password managers. Sessions are HTTP-only, `SameSite=Lax`, secure cookies in production, and expire after eight hours. Failed sign-ins are throttled after five attempts per administrator/client address in fifteen minutes. Correct credentials are never rejected due to another client's failures. Cloudflare Tunnel should pass `CF-Connecting-IP`; Coolify's trusted proxy should pass the original client as the first `X-Forwarded-For` address. If neither is valid, there is no shared lockout key. This process-local guard resets on restart and is not a distributed rate limiter.
 
-Keep `AUTH_SECRET` unchanged across redeployments or every administrator session will be invalidated. Set the public Coolify domain with HTTPS before using the app: Coolify terminates TLS at its reverse proxy and the application sets secure cookies in production. Do not expose the container port directly to the internet.
+Keep `AUTH_SECRET` unchanged across redeployments or every administrator session will be invalidated. Set `AUTH_URL` to the exact public HTTPS origin, including the `https://` scheme, and ensure Cloudflare/Coolify forward the public host and HTTPS scheme. Incorrect forwarded headers or a changing `AUTH_SECRET` can cause session loss on refresh. Coolify terminates TLS at its reverse proxy and the application sets secure cookies in production. Do not expose the container port directly to the internet.
 
 ### AI-assisted PCN capture
 
@@ -114,12 +114,12 @@ Create these values as Coolify secrets. Do not put them in Git, Docker build arg
 | `DATABASE_URL` | Yes | Internal PostgreSQL URL from the separate Coolify database resource. Keep the database private to the Coolify network. |
 | `AUTH_SECRET` | Yes | Stable random Auth.js session secret; generate it before first deployment. |
 | `ADMIN_USERNAME` | Yes | Sole administrator login name. |
-| `ADMIN_PASSWORD_HASH` | Yes | Argon2id hash from `npm run auth:hash-password`; never a plaintext password. |
+| `ADMIN_EMAIL` | Yes | Administrator account email and personal challenge/payment reminder recipient. |
+| `AUTH_URL` | Yes | Exact public HTTPS origin; ensures Auth.js uses the correct callback origin behind proxies. |
 | `OPENAI_API_KEY` | No | Enables AI extraction and challenge generation. Manual PCN/challenge workflows remain available without it. |
 | `OPENAI_MODEL` | No | Vision-capable OpenAI model; defaults to `gpt-4.1-mini`. |
 | `RESEND_API_KEY` | No | Enables management-report and personal-reminder delivery. |
 | `EMAIL_FROM` | With Resend | A sender identity on a verified Resend domain. Verify the sender domain in Resend before enabling delivery. |
-| `ADMIN_EMAIL` | With personal reminders | Personal challenge/payment reminder recipient. |
 | `CRON_SECRET` | With scheduled tasks | Long random bearer secret accepted only by the two job endpoints. |
 | `PORT` | No | Application port; defaults to `3000` |
 | `HOSTNAME` | No | Bind address; defaults to `0.0.0.0` |
@@ -127,6 +127,10 @@ Create these values as Coolify secrets. Do not put them in Git, Docker build arg
 Expose port `3000` and configure the Coolify health check path as `/api/health`.
 
 At every container start, `docker-entrypoint.sh` runs `prisma migrate deploy` before the Next.js process. The shell exits immediately if migration deployment fails, so the new application process cannot start. Once migrations succeed, `exec node server.js` starts Next.js with correct signal handling. Running the same deployment when no migrations are pending is safe.
+
+For the database-backed administrator migration, first confirm a backup of the existing PostgreSQL resource and set `ADMIN_USERNAME`, `ADMIN_EMAIL`, `AUTH_SECRET`, `AUTH_URL`, and `DATABASE_URL` in Coolify. Deploy the new image once; its entrypoint applies the `User` migration before starting Next.js. Then open an **interactive terminal in the running application container** and run `npm run admin:setup`. Enter the password only at its hidden prompt. The account persists in the separate PostgreSQL resource across redeployments. After a successful login, remove the obsolete `ADMIN_PASSWORD_HASH` variable from Coolify and redeploy when convenient; the new code never reads it. If setup reports that an administrator already exists, do not rerun setup: use `npm run admin:reset` only when deliberately changing the password. Verify the login and a page refresh through the public HTTPS domain. Never run setup against a different database from the one used by the application.
+
+The migration drops only the obsolete `LoginAttempt` table; it does not alter PCNs, vehicles, issuers, challenges, reports, reminders or job history. During a rolling replacement, the old image may briefly fail login after that table is dropped. Complete the deployment promptly and run administrator setup before testing login. Do not reset the database.
 
 Do not override the image entrypoint with a custom start command. Normal releases do not require an SSH migration step. Never use `prisma migrate dev`, `prisma db push`, database resets, or automatic seeding in production.
 

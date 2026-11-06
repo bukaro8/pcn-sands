@@ -20,7 +20,8 @@
     "db:verify-challenge-workflow": "tsx scripts/verify-challenge-workflow.ts",
     "db:verify-report-workflow": "tsx scripts/verify-report-workflow.ts",
     "db:verify-email-jobs": "tsx scripts/verify-email-jobs.ts",
-    "auth:hash-password": "tsx scripts/hash-admin-password.ts",
+    "admin:setup": "node scripts/admin-account.mjs setup",
+    "admin:reset": "node scripts/admin-account.mjs reset",
     "test:auth": "tsx scripts/verify-authentication.ts"
   },
   "dependencies": {
