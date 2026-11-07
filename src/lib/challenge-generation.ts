@@ -26,6 +26,7 @@ export function parseChallengeGeneration(value: unknown): ChallengeGeneration {
   if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error("The evidence response was invalid");
   const challengeText = optionalText(source.challengeText);
   if (!challengeText) throw new Error("The generated challenge was empty");
+  if (/insufficient to (?:demonstrate|prove)|does not prove (?:that )?the vehicle was loading|cannot establish (?:loading|delivery)/i.test(challengeText)) throw new Error("The generated challenge included private evidence concerns");
   const record = evidence as Record<string, unknown>;
   return {
     challengeText,

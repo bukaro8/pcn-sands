@@ -79,6 +79,8 @@ async function main() {
     pcnId = pcn.id;
     const challenge = pcn.challenges[0];
 
+    await prisma.invoiceEvidence.create({ data: { pcnId, deliveryAddress: "201-203 Tooting High Street, SW17 0SZ", deliveryTime: "11:00", deliveryTimeEnd: "11:30", deliveryTimeKind: "SCHEDULED_WINDOW" } });
+
     const report = await prisma.reportHistory.create({
       data: {
         type: "WEEKLY",
@@ -111,7 +113,7 @@ async function main() {
 
     const verified = await prisma.pcn.findUniqueOrThrow({
       where: { id: pcnId },
-      include: { vehicle: true, issuer: true, challenges: true, reportEntries: true, reminders: true },
+      include: { vehicle: true, issuer: true, challenges: true, reportEntries: true, reminders: true, invoiceEvidence: true },
     });
 
     if (
@@ -121,6 +123,8 @@ async function main() {
       verified.challenges.length !== 1 ||
       verified.reportEntries[0]?.paymentNoticeNumber !== 1 ||
       verified.reminders.length !== 1
+      || verified.invoiceEvidence?.deliveryTimeEnd !== "11:30"
+      || verified.invoiceEvidence?.deliveryTimeKind !== "SCHEDULED_WINDOW"
     ) {
       throw new Error("PCN model relationships failed verification");
     }

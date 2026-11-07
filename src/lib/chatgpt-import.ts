@@ -18,11 +18,11 @@ Distinguish the contravention date from the issue date. Use null for anything mi
 
 Attach the PCN photograph, send this prompt, then use the code block's Copy button to copy only the JSON object into Sands PCN Management.`;
 
-export const invoicePrompt = `Read the attached delivery invoice carefully. Return exactly one valid JSON object inside a single \`\`\`json code block, with no text or commentary before or after the code block. Use schemaVersion "invoice-1" and these keys: schemaVersion, reference, invoiceDate, deliveryDate, deliveryAddress, billingAddress, recipient, supplier, description, deliveryTime, otherFacts. Use strings or null for every field except schemaVersion. Dates must be YYYY-MM-DD, time HH:mm (24-hour). Distinguish invoice date from an explicitly recorded delivery date and billing address from delivery address. An invoice's creation does not prove delivery occurred. Use null for absent, ambiguous or unreadable facts. Never invent delivery activity, loading, times or events. Attach the invoice, send this prompt, then use the code block's Copy button to copy only the JSON object.`;
+export const invoicePrompt = `Read the attached delivery invoice carefully. Return exactly one valid JSON object inside a single \`\`\`json code block, with no text or commentary before or after the code block. Use schemaVersion "invoice-1" and these keys: schemaVersion, reference, invoiceDate, deliveryDate, deliveryAddress, billingAddress, recipient, supplier, description, deliveryTime, deliveryTimeEnd, deliveryTimeKind, otherFacts. Use strings or null for every field except schemaVersion. Dates must be YYYY-MM-DD and times HH:mm (24-hour). For an explicit time window, put its start in deliveryTime, its end in deliveryTimeEnd, and set deliveryTimeKind to SCHEDULED_WINDOW unless the document explicitly confirms actual delivery at those times. For a single explicitly confirmed delivery time, use deliveryTime, null for deliveryTimeEnd, and CONFIRMED_TIME for deliveryTimeKind. Use UNSPECIFIED only when the document shows a time but does not establish whether it is scheduled or confirmed. Distinguish invoice date from an explicitly recorded delivery date, billing address from delivery address, and a scheduled window from a confirmed delivery time. An invoice's creation does not prove delivery occurred. Use null for absent, ambiguous or unreadable facts. Never invent delivery activity, loading, times or events. Attach the invoice, send this prompt, then use the code block's Copy button to copy only the JSON object.`;
 
 type Result = { values: Record<string, string | null>; errors: Record<string, string>; calculatedFields: string[] };
 const pcnFields = ["reference", "registration", "issuerName", "issuerType", "noticeType", "contraventionCode", "contraventionDescription", "contraventionLocation", "contraventionDate", "contraventionTime", "issueDate", "paymentDeadline", "penaltyAmount", "discountedAmount", "fullPenaltyAmount", "discountDeadline", "fullPaymentDeadline", "discountPeriodDays", "discountPeriodStartDate", "notes"] as const;
-const invoiceFields = ["reference", "invoiceDate", "deliveryDate", "deliveryAddress", "billingAddress", "recipient", "supplier", "description", "deliveryTime", "otherFacts"] as const;
+const invoiceFields = ["reference", "invoiceDate", "deliveryDate", "deliveryAddress", "billingAddress", "recipient", "supplier", "description", "deliveryTime", "deliveryTimeEnd", "deliveryTimeKind", "otherFacts"] as const;
 const dateFields = new Set(["contraventionDate", "issueDate", "paymentDeadline", "discountDeadline", "fullPaymentDeadline", "discountPeriodStartDate", "invoiceDate", "deliveryDate"]);
 const amountFields = ["penaltyAmount", "discountedAmount", "fullPenaltyAmount"] as const;
 const htmlEntityPattern = /&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/i;
@@ -65,7 +65,7 @@ function parse(raw: string, version: string, fields: readonly string[]): Result 
     if (typeof fieldValue !== "string" || fieldValue.length > 3000 || /[\u0000-\u0008\u000e-\u001f]/.test(fieldValue)) { errors[key] = "Use a plain text value or null."; continue; }
     const cleaned = fieldValue.trim(); values[key] = cleaned || null;
     if (dateFields.has(key) && !isIsoDate(cleaned)) errors[key] = "Use a real YYYY-MM-DD date or null.";
-    if ((key === "contraventionTime" || key === "deliveryTime") && !/^([01]\d|2[0-3]):[0-5]\d$/.test(cleaned)) errors[key] = "Use HH:mm or null.";
+    if ((key === "contraventionTime" || key === "deliveryTime" || key === "deliveryTimeEnd") && !/^([01]\d|2[0-3]):[0-5]\d$/.test(cleaned)) errors[key] = "Use HH:mm or null.";
   }
   return { values, errors, calculatedFields };
 }
@@ -83,4 +83,11 @@ export function parsePcnJson(raw: string): Result {
   return result;
 }
 
-export function parseInvoiceJson(raw: string) { return parse(raw, "invoice-1", invoiceFields); }
+export function parseInvoiceJson(raw: string) {
+  const result = parse(raw, "invoice-1", invoiceFields);
+  const values = result.values;
+  if (values.deliveryTimeKind && !["SCHEDULED_WINDOW", "CONFIRMED_TIME", "UNSPECIFIED"].includes(values.deliveryTimeKind)) result.errors.deliveryTimeKind = "Choose SCHEDULED_WINDOW, CONFIRMED_TIME or UNSPECIFIED.";
+  if (values.deliveryTimeEnd && !values.deliveryTime) result.errors.deliveryTimeEnd = "A time-window end requires a start time.";
+  if (values.deliveryTime && values.deliveryTimeEnd && values.deliveryTimeEnd <= values.deliveryTime) result.errors.deliveryTimeEnd = "The time-window end must be later than its start.";
+  return result;
+}

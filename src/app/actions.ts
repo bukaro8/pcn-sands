@@ -76,6 +76,7 @@ function actionError(path: string, error: unknown, operation = "pcn.action"): ne
     "A rejected challenge must retain a payment status", "Notice does not match this PCN and vehicle",
     "Additional evidence details are too long",
     "Contravention time must use HH:mm", "Notes are too long", "Delivery time must use HH:mm",
+    "Delivery time kind is invalid", "Delivery window end must be later than its start",
     "Discount period must be between 1 and 366 days",
     "Discount deadline does not match the stated inclusive period",
   ];
@@ -442,10 +443,13 @@ export async function saveInvoiceEvidence(formData: FormData) {
   const detailPath = `/pcns/${pcnId}`;
   try {
     if (!pcnId || !await prisma.pcn.findUnique({ where: { id: pcnId }, select: { id: true } })) throw new Error("PCN is required");
-    const fields = ["reference", "deliveryAddress", "billingAddress", "recipient", "supplier", "description", "deliveryTime", "otherFacts"] as const;
+    const fields = ["reference", "deliveryAddress", "billingAddress", "recipient", "supplier", "description", "deliveryTime", "deliveryTimeEnd", "deliveryTimeKind", "otherFacts"] as const;
     const data = Object.fromEntries(fields.map((field) => [field, optionalValue(formData, field)])) as Record<typeof fields[number], string | null>;
     for (const field of fields) if ((data[field]?.length ?? 0) > 3000) throw new Error("One or more fields are too long");
     if (data.deliveryTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(data.deliveryTime)) throw new Error("Delivery time must use HH:mm");
+    if (data.deliveryTimeEnd && !/^([01]\d|2[0-3]):[0-5]\d$/.test(data.deliveryTimeEnd)) throw new Error("Delivery time must use HH:mm");
+    if (data.deliveryTimeKind && !["SCHEDULED_WINDOW", "CONFIRMED_TIME", "UNSPECIFIED"].includes(data.deliveryTimeKind)) throw new Error("Delivery time kind is invalid");
+    if (data.deliveryTime && data.deliveryTimeEnd && data.deliveryTimeEnd <= data.deliveryTime) throw new Error("Delivery window end must be later than its start");
     const evidence = { ...data, invoiceDate: optionalDate(formData, "invoiceDate"), deliveryDate: optionalDate(formData, "deliveryDate") };
     await prisma.invoiceEvidence.upsert({ where: { pcnId }, create: { pcnId, ...evidence }, update: evidence });
   } catch (error) { actionError(detailPath, error); }

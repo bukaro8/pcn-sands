@@ -1,5 +1,6 @@
 import { extractResponseOutputText, issuerChallengeDescription, parseChallengeGeneration, readChallengeGenerationResponse } from "../src/lib/challenge-generation";
 import { validateTemporaryEvidence } from "../src/lib/temporary-upload";
+import { analyzeDeliveryEvidence, extractContraventionTime } from "../src/lib/delivery-evidence";
 
 async function main() {
 const mockGeneration = {
@@ -12,6 +13,9 @@ if (!parsed.challengeText.includes("Please cancel") || parsed.evidence.reference
 let invalidResponseRejected = false;
 try { parseChallengeGeneration({ challengeText: "", evidence: {}, missingInformation: [] }); } catch { invalidResponseRejected = true; }
 if (!invalidResponseRejected) throw new Error("Invalid challenge response was accepted");
+let selfDefeatingResponseRejected = false;
+try { parseChallengeGeneration({ ...mockGeneration, challengeText: "These facts are insufficient to demonstrate that the vehicle was loading." }); } catch { selfDefeatingResponseRejected = true; }
+if (!selfDefeatingResponseRejected) throw new Error("Self-defeating challenge text was accepted");
 if (issuerChallengeDescription("COUNCIL") !== "local council" || issuerChallengeDescription("PRIVATE") !== "private parking company" || issuerChallengeDescription("TRANSPORT_AUTHORITY") !== "transport authority") throw new Error("Issuer-specific challenge terminology failed");
 
 const rawResponsesPayload = { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(mockGeneration) }] }] };
@@ -41,6 +45,23 @@ try {
   authFailureHandled = error instanceof Error && error.message.includes("session has expired");
 }
 if (!authFailureHandled) throw new Error("Challenge API authentication failure was not preserved");
+
+const nearbyWindow = analyzeDeliveryEvidence({
+  pcnLocation: "Trevelyan Road, SW17",
+  deliveryAddress: "201–203 Tooting High Street, SW17 0SZ",
+  pcnTime: "11:24",
+  deliveryTime: "11:00",
+  deliveryTimeEnd: "11:30",
+  deliveryTimeKind: "SCHEDULED_WINDOW",
+});
+if (nearbyWindow.location.status !== "POSSIBLE_MATCH" || nearbyWindow.time.status !== "WITHIN_STATED_WINDOW" || !nearbyWindow.missingFacts.some((fact) => fact.includes("scheduled delivery window"))) throw new Error("Nearby scheduled-window evidence was overstated or missed");
+const unrelated = analyzeDeliveryEvidence({ pcnLocation: "Trevelyan Road, SW17", deliveryAddress: "1 Example Street, Manchester M1 1AA", pcnTime: "11:24", deliveryTime: "11:00", deliveryTimeEnd: "11:30", deliveryTimeKind: "SCHEDULED_WINDOW" });
+if (unrelated.location.status !== "UNVERIFIED") throw new Error("Unrelated locations were treated as nearby");
+const contradictory = analyzeDeliveryEvidence({ pcnLocation: "Trevelyan Road, SW17", deliveryAddress: "201–203 Tooting High Street, SW17 0SZ", pcnTime: "12:15", deliveryTime: "11:00", deliveryTimeEnd: "11:30", deliveryTimeKind: "SCHEDULED_WINDOW" });
+if (contradictory.time.status !== "OUTSIDE_STATED_WINDOW") throw new Error("Contradictory delivery times were not identified");
+const exactAddress = analyzeDeliveryEvidence({ pcnLocation: "201-203 Tooting High Street, SW17 0SZ", deliveryAddress: "201–203 Tooting High Street SW17 0SZ", pcnTime: null, deliveryTime: null, deliveryTimeEnd: null, deliveryTimeKind: null });
+if (exactAddress.location.status !== "VERIFIED_NEARBY") throw new Error("Matching reviewed addresses were not recognised");
+if (extractContraventionTime("Contravention description: example\nContravention time: 11:24") !== "11:24") throw new Error("Stored PCN time was not recovered");
 
 const validEvidence = new File(["evidence"], "invoice.pdf", { type: "application/pdf" });
 const invalidEvidence = new File(["evidence"], "invoice.exe", { type: "application/octet-stream" });

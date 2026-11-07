@@ -272,21 +272,23 @@ model SubsequentNotice {
 }
 
 model InvoiceEvidence {
-  id              String    @id @default(cuid())
-  pcnId           String    @unique
-  reference       String?
-  invoiceDate     DateTime? @db.Date
-  deliveryDate    DateTime? @db.Date
-  deliveryAddress String?
-  billingAddress  String?
-  recipient       String?
-  supplier        String?
-  description     String?
-  deliveryTime    String?
-  otherFacts      String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  pcn             Pcn       @relation(fields: [pcnId], references: [id], onDelete: Cascade)
+  id               String    @id @default(cuid())
+  pcnId            String    @unique
+  reference        String?
+  invoiceDate      DateTime? @db.Date
+  deliveryDate     DateTime? @db.Date
+  deliveryAddress  String?
+  billingAddress   String?
+  recipient        String?
+  supplier         String?
+  description      String?
+  deliveryTime     String?
+  deliveryTimeEnd  String?
+  deliveryTimeKind String?
+  otherFacts       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  pcn              Pcn       @relation(fields: [pcnId], references: [id], onDelete: Cascade)
 }
 
 model ReminderDelivery {

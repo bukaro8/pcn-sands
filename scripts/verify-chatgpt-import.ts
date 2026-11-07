@@ -50,4 +50,7 @@ assert(pcnPrompt.includes("exactly one valid JSON object") && pcnPrompt.includes
 const invoice = parseInvoiceJson(JSON.stringify({ schemaVersion: "invoice-1", reference: "INV-123", invoiceDate: "2026-11-01", deliveryDate: null, billingAddress: "Billing Street", deliveryAddress: null, deliveryTime: null }));
 assert(!Object.keys(invoice.errors).length && invoice.values.deliveryDate === null && invoice.values.deliveryAddress === null && invoice.values.billingAddress === "Billing Street", "Invoice dates or addresses were conflated");
 assert(Boolean(parseInvoiceJson('{"schemaVersion":"invoice-1","deliveryTime":"noon"}').errors.deliveryTime), "Unverified time accepted");
+const invoiceWindow = parseInvoiceJson(JSON.stringify({ schemaVersion: "invoice-1", deliveryTime: "11:00", deliveryTimeEnd: "11:30", deliveryTimeKind: "SCHEDULED_WINDOW" }));
+assert(Object.keys(invoiceWindow.errors).length === 0 && invoiceWindow.values.deliveryTimeEnd === "11:30", "Delivery window import failed");
+assert(Boolean(parseInvoiceJson(JSON.stringify({ schemaVersion: "invoice-1", deliveryTime: "11:30", deliveryTimeEnd: "11:00", deliveryTimeKind: "SCHEDULED_WINDOW" })).errors.deliveryTimeEnd), "Contradictory delivery window accepted");
 console.log("Reliable ChatGPT PCN/invoice JSON and discounted deadline parsing passed");
