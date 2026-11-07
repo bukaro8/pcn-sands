@@ -49,8 +49,11 @@ export function buildChallengeWritingPrompt(input: ChallengeWritingInput): strin
       ? "Use private parking notice terminology and do not rely on statutory council-PCN procedures."
       : "Use council PCN terminology appropriate to the known notice and stage.";
   const evidenceGuidance = input.invoice
-    ? "Use relevant reviewed invoice details naturally, especially its reference, delivery address, recipient and recorded timing. An invoice supports the account but is not conclusive proof of loading or an exemption."
+    ? "For a loading or unloading challenge, treat the reviewed invoice as the primary evidential basis. Build the factual account from its reference, delivery address, customer or recipient, relevant date and stated time window alongside the PCN details. An invoice supports the challenge but is not conclusive proof of loading or an exemption."
     : "No reviewed invoice is available. Do not imply that an invoice or delivery document exists.";
+  const additionalCircumstances = input.additionalCircumstances.trim()
+    ? `Administrator-supplied additional circumstances (use only this explicitly provided wording as supporting context, without presenting it as driver testimony): ${input.additionalCircumstances.trim()}.`
+    : "";
 
   return `Act as an experienced UK parking appeals specialist. Draft a concise, natural and persuasive British English challenge for manual review and submission.
 
@@ -63,20 +66,22 @@ Writing requirements:
 - Do not use mechanical headings or internal labels such as "Grounds", "LOADING_UNLOADING", "Evidence review", "Analysis" or "Missing information" in challengeText.
 - Never include technical commentary, confidence assessments, evidence weaknesses or questions for the administrator in challengeText.
 - Put every material fact requiring confirmation in missingInformation instead of asserting it in the letter.
-- Do not invent driver statements, loading activity, distance, geographical proximity, legal exemptions, legislation, signage, dates, times or evidence.
+- Do not rely on, invent or paraphrase driver statements. Never write "the driver confirms", "the driver states" or similar testimony.
+- Do not invent loading activity, distance, geographical proximity, legal exemptions, legislation, signage, dates, times or evidence.
 - Never describe a scheduled delivery window as a confirmed delivery time.
 - Do not conceal contradictions. Omit a contradicted proposition from the letter and describe the issue privately in missingInformation.
 
 Evidence instructions:
 - A driver may stop on a nearby street, but different street names do not establish either proximity or separation.
-- Postcode agreement is only a clue. State shared postcode information only when useful; never turn it into a verified distance or claim that locations are nearby unless the private analysis says VERIFIED_NEARBY.
+- Compare postcode districts privately. Agreement is only a clue; a difference or missing district is a warning, not a reason to discard the invoice. State shared postcode information only when useful and never turn it into a verified distance or proximity claim unless the private analysis says VERIFIED_NEARBY.
 - If the PCN observation time falls within a scheduled window, it is truthful to say the times are consistent; do not say this proves the delivery occurred.
+- Distinguish an invoice date from an explicitly recorded delivery date. Distinguish every scheduled window from confirmed delivery activity.
 - ${evidenceGuidance}
 - ${issuerGuidance}
 
 Challenge stage: ${input.stage}.
 Evidence selection: ${input.evidenceOption}.
-Administrator-supplied circumstances: ${input.additionalCircumstances || "None supplied"}.
+${additionalCircumstances}
 Saved PCN facts: ${JSON.stringify(input.pcn)}.
 Reviewed invoice facts: ${JSON.stringify(input.invoice)}.
 Private evidence analysis (never quote its labels or concerns in challengeText): ${JSON.stringify(input.evidenceAnalysis)}.
@@ -90,17 +95,20 @@ export function buildChatGptChallengePrompt(input: {
   additionalCircumstances: string;
   facts: Record<string, unknown>;
 }): string {
-  return `Write a concise, persuasive UK parking challenge in natural British English for manual review. Work only from the reviewed facts below and the administrator's additional circumstances.
+  const additionalCircumstances = input.additionalCircumstances.trim()
+    ? `Explicit administrator-supplied additional circumstances (use as supporting context only, never as invented driver testimony): ${input.additionalCircumstances.trim()}`
+    : "";
+  return `Write a concise, persuasive UK parking challenge in natural British English for manual review. Work only from the reviewed facts below${additionalCircumstances ? " and the explicitly supplied additional circumstances" : ""}.
 
-Write like an experienced parking appeals specialist: courteous, confident, specific and free of generic filler. Identify the PCN and vehicle accurately, explain the strongest truthful cancellation ground, use relevant invoice details naturally, and finish with a clear request to cancel the PCN. Do not use headings such as "Grounds", internal enum labels, evidence-review notes, technical commentary or excessive legal jargon.
+Write like an experienced parking appeals specialist: courteous, confident, specific and free of generic filler. Identify the PCN and vehicle accurately and finish with a clear request to cancel the PCN. For a loading or unloading challenge, use the verified invoice as the primary basis: naturally identify its reference, delivery address, customer or recipient, relevant date and stated time window alongside the PCN details. Do not use headings such as "Grounds", internal enum labels, evidence-review notes, technical commentary or excessive legal jargon.
 
-Do not invent loading activity, driver statements, distances, proximity, exemptions, legislation, signage, dates, times or documents. A postcode match is only a clue. A scheduled delivery window is not a confirmed delivery time. For a TfL or other transport-authority notice, do not claim that loading was permitted on a red route unless the reviewed facts expressly establish it. If a material fact is unconfirmed or contradicted, omit it rather than weakening the letter or asserting it.
+Do not rely on, invent or paraphrase driver statements, including phrases such as "the driver confirms" or "the driver states". Include additional circumstances only when they appear explicitly below. Do not invent loading activity, distances, proximity, exemptions, legislation, signage, dates, times or documents. Different streets are normal for some deliveries, but a postcode match is only a clue; differing or missing postcode districts are a private warning and do not automatically invalidate the invoice. An invoice date is not necessarily a delivery date, and a scheduled delivery window is not confirmed delivery activity. For a TfL or other transport-authority notice, do not claim that loading was permitted on a red route unless the reviewed facts expressly establish it. Keep unsupported claims and substantive concerns out of the letter.
 
 Return only the finished editable challenge letter, with no commentary before or after it.
 
 Stage: ${input.stage}
 Selected reason: ${reasonLabels[input.reason] ?? input.reason}
-Administrator-supplied circumstances: ${input.additionalCircumstances || "None supplied"}
+${additionalCircumstances}
 Reviewed case, invoice and private evidence analysis: ${JSON.stringify(input.facts)}`;
 }
 
@@ -110,6 +118,14 @@ function normalized(value: string | null | undefined) {
 
 function compact(value: string | null | undefined) {
   return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function includesDate(text: string, isoDate: string) {
+  const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][Number(month) - 1];
+  return [isoDate, `${Number(day)} ${monthName} ${year}`, `${day} ${monthName} ${year}`].some((value) => text.toLowerCase().includes(value.toLowerCase()));
 }
 
 export function challengeQualityIssues(generation: ChallengeGeneration, input: ChallengeWritingInput): string[] {
@@ -122,12 +138,20 @@ export function challengeQualityIssues(generation: ChallengeGeneration, input: C
   if (!compact(text).includes(compact(input.pcn.vehicleRegistration))) issues.push("The saved vehicle registration is missing.");
   if (/^(?:grounds?|evidence review|analysis|missing information)\s*:/im.test(text) || /\b(?:LOADING_UNLOADING|PARKING_RESTRICTION_SIGNAGE|OTHER_CIRCUMSTANCES)\b/.test(text)) issues.push("The draft contains an internal or mechanical label.");
   if (/insufficient to (?:demonstrate|prove)|does not prove|cannot establish|evidence is weak|lack of evidence/i.test(text)) issues.push("The draft exposes private evidence weaknesses.");
+  if (/\bthe driver (?:confirms?|states?|advises?|reports?|says|explains?)\b/i.test(text)) issues.push("The draft relies on driver testimony.");
   const legalClaim = text.match(/\b(?:Traffic Management Act|Road Traffic Regulation Act|Protection of Freedoms Act|statutory exemption|regulation \d+)/i)?.[0];
   if (legalClaim && !JSON.stringify(input).toLowerCase().includes(legalClaim.toLowerCase())) issues.push("The draft introduces an unsupported legal claim.");
   if (input.evidenceAnalysis.location.status !== "VERIFIED_NEARBY" && /\b(?:nearby|adjacent|a short distance|in close proximity|immediate vicinity)\b/i.test(text) && !/\b(?:nearby|adjacent|a short distance|in close proximity|immediate vicinity)\b/i.test(input.additionalCircumstances)) issues.push("The draft overstates geographical proximity.");
+  if (input.evidenceAnalysis.location.status === "UNVERIFIED" && /\b(?:same|share|both)\b.{0,60}\bpostcode(?: district)?\b/i.test(text)) issues.push("The draft contradicts the private postcode warning.");
   if (input.evidenceAnalysis.time.status === "OUTSIDE_STATED_WINDOW" && /\b(?:within|during|consistent with)\b.{0,50}\b(?:window|delivery time)\b/i.test(text)) issues.push("The draft contradicts the recorded time comparison.");
   if (input.invoice?.deliveryTimeKind === "SCHEDULED_WINDOW" && /\b(?:delivery (?:occurred|took place|was completed)|confirmed delivery)\b/i.test(text) && !/deliver(?:y|ed).{0,80}(?:confirm|occurred|completed)/i.test(input.additionalCircumstances)) issues.push("The draft treats a scheduled window as confirmed delivery.");
   if (input.evidenceOption === "DELIVERY_INVOICE" && input.invoice?.reference && !compact(text).includes(compact(input.invoice.reference))) issues.push("The reviewed invoice reference is missing.");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryAddress && !compact(text).includes(compact(input.invoice.deliveryAddress))) issues.push("The reviewed delivery address is missing.");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.recipient && !compact(text).includes(compact(input.invoice.recipient))) issues.push("The reviewed customer or recipient is missing.");
+  const invoiceEvidenceDate = input.invoice?.deliveryDate ?? input.invoice?.invoiceDate;
+  if (input.reason === "LOADING_UNLOADING" && invoiceEvidenceDate && !includesDate(text, invoiceEvidenceDate)) issues.push("The relevant reviewed invoice or delivery date is missing.");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryTime && !text.includes(input.invoice.deliveryTime)) issues.push("The reviewed delivery time or window start is missing.");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryTimeEnd && !text.includes(input.invoice.deliveryTimeEnd)) issues.push("The reviewed delivery window end is missing.");
   if (generation.evidence.reference && input.invoice?.reference && normalized(generation.evidence.reference) !== normalized(input.invoice.reference)) issues.push("The generated invoice reference does not match the reviewed evidence.");
   if (generation.evidence.deliveryAddress && input.invoice?.deliveryAddress && normalized(generation.evidence.deliveryAddress) !== normalized(input.invoice.deliveryAddress)) issues.push("The generated delivery address does not match the reviewed evidence.");
   if (generation.evidence.deliveryDate && input.invoice?.deliveryDate && generation.evidence.deliveryDate !== input.invoice.deliveryDate) issues.push("The generated delivery date does not match the reviewed evidence.");

@@ -58,9 +58,12 @@ export function analyzeDeliveryEvidence(input: {
     const clue = pcnPostcode.full && pcnPostcode.full === deliveryPostcode.full ? `full postcode ${pcnPostcode.full}` : `postcode district ${pcnPostcode.district}`;
     location = { status: "POSSIBLE_MATCH", label: "Possible match", detail: `The locations share ${clue}, but postcode matching alone does not verify proximity.` };
     missingFacts.push("Confirm that the delivery address was genuinely close to the PCN location before asserting proximity.");
+  } else if (pcnPostcode.district && deliveryPostcode.district) {
+    location = { status: "UNVERIFIED", label: "Unverified", detail: `The recorded postcode districts differ (${pcnPostcode.district} and ${deliveryPostcode.district}). This warning does not automatically make the invoice irrelevant.` };
+    missingFacts.push("Review the different postcode districts and confirm whether the delivery address is related to the PCN location.");
   } else {
-    location = { status: "UNVERIFIED", label: "Unverified", detail: "No reliable address or postcode relationship was established." };
-    missingFacts.push("Confirm whether the delivery address is related to the PCN location.");
+    location = { status: "UNVERIFIED", label: "Unverified", detail: "A postcode district could not be established for one or both locations. The invoice remains available as evidence." };
+    missingFacts.push("Confirm the missing postcode information or otherwise establish how the delivery address relates to the PCN location.");
   }
 
   const pcnTime = minutes(input.pcnTime);

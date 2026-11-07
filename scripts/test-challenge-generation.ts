@@ -68,7 +68,7 @@ const writingInput: ChallengeWritingInput = {
   stage: "INITIAL",
   reason: "LOADING_UNLOADING",
   evidenceOption: "DELIVERY_INVOICE",
-  additionalCircumstances: "The driver confirms the vehicle stopped only as long as necessary to unload the consignment recorded on the invoice.",
+  additionalCircumstances: "",
   pcn: {
     reference: "TF12345678",
     vehicleRegistration: "AB12 CDE",
@@ -102,7 +102,7 @@ const professionalLetter = `Dear Sir or Madam,
 
 I am writing to challenge PCN TF12345678 issued to vehicle AB12 CDE in Trevelyan Road on 2 November 2026.
 
-The driver confirms that the vehicle stopped only for the time needed to unload the consignment recorded on invoice INV-100 for Example Foods Ltd at 201–203 Tooting High Street. The PCN observation time of 11:24 falls within the invoice's stated delivery window of 11:00 to 11:30. The PCN location and delivery address are both recorded in the SW17 postcode district, and the invoice is supplied in support of the circumstances described.
+Invoice INV-100, dated 2 November 2026, records a scheduled delivery for Example Foods Ltd at 201–203 Tooting High Street, SW17 0SZ, with a stated window of 11:00 to 11:30. The PCN records the vehicle in Trevelyan Road at 11:24, which falls within that documented window. The PCN location and delivery address are both recorded in the SW17 postcode district, and the invoice is supplied as evidence of the delivery-related circumstances.
 
 Please consider the enclosed delivery evidence and cancel the PCN.
 
@@ -110,14 +110,17 @@ Yours faithfully`;
 const professionalGeneration = { ...mockGeneration, challengeText: professionalLetter, evidence: { deliveryAddress: writingInput.invoice!.deliveryAddress, deliveryDate: writingInput.invoice!.deliveryDate, companyOrRecipient: writingInput.invoice!.recipient, reference: writingInput.invoice!.reference }, missingInformation: nearbyWindow.missingFacts };
 if (challengeQualityIssues(professionalGeneration, writingInput).length) throw new Error(`Professional delivery challenge failed quality checks: ${challengeQualityIssues(professionalGeneration, writingInput).join("; ")}`);
 const apiPrompt = buildChallengeWritingPrompt(writingInput);
-if (!apiPrompt.includes("experienced UK parking appeals specialist") || !apiPrompt.includes("TfL red route") || !apiPrompt.includes("scheduled delivery window as a confirmed delivery time") || !apiPrompt.includes("TF12345678")) throw new Error("Professional API writing brief is incomplete");
+if (!apiPrompt.includes("experienced UK parking appeals specialist") || !apiPrompt.includes("primary evidential basis") || !apiPrompt.includes("TfL red route") || !apiPrompt.includes("scheduled delivery window as a confirmed delivery time") || !apiPrompt.includes("TF12345678") || apiPrompt.includes("Administrator-supplied additional circumstances")) throw new Error("Professional API writing brief is incomplete");
 const fallback = buildChatGptChallengePrompt({ stage: writingInput.stage, reason: writingInput.reason, additionalCircumstances: writingInput.additionalCircumstances, facts: { ...writingInput.pcn, invoice: writingInput.invoice, evidenceAnalysis: writingInput.evidenceAnalysis } });
-if (!fallback.includes("Return only the finished editable challenge letter") || !fallback.includes("TF12345678") || !fallback.includes("scheduled delivery window is not a confirmed delivery time")) throw new Error("ChatGPT fallback did not preserve the writing safeguards");
+if (!fallback.includes("primary basis") || !fallback.includes("Return only the finished editable challenge letter") || !fallback.includes("TF12345678") || !fallback.includes("scheduled delivery window is not confirmed delivery activity") || fallback.includes("Explicit administrator-supplied additional circumstances")) throw new Error("ChatGPT fallback did not preserve the writing safeguards");
+const explicitCircumstances = "The administrator confirmed that access restrictions required the vehicle to stop on the recorded street.";
+if (!buildChallengeWritingPrompt({ ...writingInput, additionalCircumstances: explicitCircumstances }).includes(explicitCircumstances) || !buildChatGptChallengePrompt({ stage: writingInput.stage, reason: writingInput.reason, additionalCircumstances: explicitCircumstances, facts: {} }).includes(explicitCircumstances)) throw new Error("Explicit additional circumstances were omitted");
 for (const [label, challengeText] of [
   ["internal heading", professionalLetter.replace("Dear Sir or Madam,", "Grounds: Loading / unloading")],
   ["invented proximity", professionalLetter.replace("both recorded in the SW17 postcode district", "in close proximity")],
   ["unsupported law", professionalLetter.replace("Please consider", "Under the Traffic Management Act, you must cancel this PCN. Please consider")],
-  ["scheduled time overstated", professionalLetter.replace("falls within the invoice's stated delivery window", "confirms delivery took place")],
+  ["scheduled time overstated", professionalLetter.replace("falls within that documented window", "confirms delivery took place")],
+  ["driver testimony", professionalLetter.replace("Invoice INV-100", "The driver confirms the delivery. Invoice INV-100")],
 ] as const) {
   if (!challengeQualityIssues({ ...professionalGeneration, challengeText }, writingInput).length) throw new Error(`Quality checks accepted ${label}`);
 }
@@ -127,6 +130,13 @@ if (!challengeQualityIssues({ ...professionalGeneration, challengeText: professi
 if (!challengeQualityIssues({ ...professionalGeneration, evidence: { ...professionalGeneration.evidence, reference: "INV-999" } }, writingInput).some((issue) => issue.includes("invoice reference"))) throw new Error("Incorrect invoice reference passed quality checks");
 if (!challengeQualityIssues({ ...professionalGeneration, evidence: { ...professionalGeneration.evidence, deliveryDate: "2026-11-03" } }, writingInput).some((issue) => issue.includes("delivery date"))) throw new Error("Incorrect delivery date passed quality checks");
 if (!challengeQualityIssues({ ...professionalGeneration, evidence: { ...professionalGeneration.evidence, deliveryAddress: "1 Unrelated Street" } }, writingInput).some((issue) => issue.includes("delivery address"))) throw new Error("Incorrect delivery address passed quality checks");
+if (!unrelated.location.detail.includes("differ") || !unrelated.location.detail.includes("does not automatically make the invoice irrelevant")) throw new Error("Different postcode districts did not produce a private non-rejection warning");
+const unrelatedWritingInput: ChallengeWritingInput = { ...writingInput, invoice: { ...writingInput.invoice!, deliveryAddress: "1 Example Street, Manchester M1 1AA" }, evidenceAnalysis: unrelated };
+const unrelatedLetter = professionalLetter.replace("201–203 Tooting High Street, SW17 0SZ", "1 Example Street, Manchester M1 1AA").replace("The PCN location and delivery address are both recorded in the SW17 postcode district, and the invoice is supplied as evidence of the delivery-related circumstances.", "The invoice is supplied as evidence of the recorded delivery-related circumstances.");
+const unrelatedGeneration = { ...professionalGeneration, challengeText: unrelatedLetter, evidence: { ...professionalGeneration.evidence, deliveryAddress: unrelatedWritingInput.invoice!.deliveryAddress } };
+if (challengeQualityIssues(unrelatedGeneration, unrelatedWritingInput).length) throw new Error("A postcode-district warning automatically rejected otherwise consistent invoice evidence");
+const missingPostcode = analyzeDeliveryEvidence({ pcnLocation: "Trevelyan Road", deliveryAddress: "201–203 Tooting High Street", pcnTime: "11:24", deliveryTime: "11:00", deliveryTimeEnd: "11:30", deliveryTimeKind: "SCHEDULED_WINDOW" });
+if (!missingPostcode.location.detail.includes("could not be established") || !missingPostcode.location.detail.includes("invoice remains available")) throw new Error("Missing postcode district did not produce a private warning");
 const noInvoicePrompt = buildChallengeWritingPrompt({ ...writingInput, evidenceOption: "NO_ADDITIONAL_EVIDENCE", invoice: null });
 if (!noInvoicePrompt.includes("Do not imply that an invoice or delivery document exists")) throw new Error("No-invoice case could invent delivery evidence");
 
