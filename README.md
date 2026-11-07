@@ -1,6 +1,6 @@
 # PCN Management
 
-Private, single-user operational application for managing penalty charge notices, including manual capture, challenge tracking, PDF reporting and optional scheduled email notifications..
+Private, single-user operational application for managing penalty charge notices, including manual capture, challenge tracking, PDF reporting and optional scheduled email notifications.
 
 ## Technology
 
