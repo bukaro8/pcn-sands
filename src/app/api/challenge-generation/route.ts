@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { appConfig } from "@/lib/config";
-import { challengeGenerationSchema, extractResponseOutputText, issuerChallengeDescription, parseChallengeGeneration } from "@/lib/challenge-generation";
+import { challengeGenerationSchema, extractResponseOutputText, parseChallengeGeneration } from "@/lib/challenge-generation";
 import { temporaryEvidenceTypes, validateTemporaryEvidence } from "@/lib/temporary-upload";
 import { isAdmin } from "@/lib/require-admin";
 import { classifyDatabaseError, logDatabaseError } from "@/lib/database-errors";
 import { analyzeDeliveryEvidence, extractContraventionTime } from "@/lib/delivery-evidence";
+import { buildChallengeWritingPrompt, challengeQualityIssues, type ChallengeWritingInput } from "@/lib/challenge-writing";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,7 @@ async function handlePost(request: Request) {
   }
   if (!pcn) return NextResponse.json({ error: "The PCN could not be found." }, { status: 404 });
 
+  const contraventionTime = extractContraventionTime(pcn.notes);
   const pcnDetails = {
     reference: pcn.reference,
     vehicleRegistration: pcn.vehicle.registrationDisplay,
@@ -64,13 +66,15 @@ async function handlePost(request: Request) {
     contraventionCode: pcn.contraventionCode,
     contraventionLocation: pcn.contraventionLocation,
     contraventionDate: pcn.contraventionDate.toISOString().slice(0, 10),
+    contraventionTime,
     issueDate: pcn.issueDate.toISOString().slice(0, 10),
     noticeType: pcn.noticeType,
+    caseNotes: pcn.notes,
   };
-  const invoice = pcn.invoiceEvidence ? { reference: pcn.invoiceEvidence.reference, invoiceDate: pcn.invoiceEvidence.invoiceDate?.toISOString().slice(0, 10), deliveryDate: pcn.invoiceEvidence.deliveryDate?.toISOString().slice(0, 10), deliveryAddress: pcn.invoiceEvidence.deliveryAddress, billingAddress: pcn.invoiceEvidence.billingAddress, recipient: pcn.invoiceEvidence.recipient, supplier: pcn.invoiceEvidence.supplier, description: pcn.invoiceEvidence.description, deliveryTime: pcn.invoiceEvidence.deliveryTime, deliveryTimeEnd: pcn.invoiceEvidence.deliveryTimeEnd, deliveryTimeKind: pcn.invoiceEvidence.deliveryTimeKind, otherFacts: pcn.invoiceEvidence.otherFacts } : null;
-  const evidenceAnalysis = analyzeDeliveryEvidence({ pcnLocation: pcn.contraventionLocation, pcnTime: extractContraventionTime(pcn.notes), deliveryAddress: pcn.invoiceEvidence?.deliveryAddress, deliveryTime: pcn.invoiceEvidence?.deliveryTime, deliveryTimeEnd: pcn.invoiceEvidence?.deliveryTimeEnd, deliveryTimeKind: pcn.invoiceEvidence?.deliveryTimeKind });
-  const issuerDescription = issuerChallengeDescription(pcn.issuer.type);
-  const content: Array<Record<string, string>> = [{ type: "input_text", text: `Draft a concise, persuasive and professional challenge in British English for manual submission. This is a ${stage.toLowerCase()} challenge to a ${issuerDescription}. Use terminology appropriate to that issuer type. Selected reason: ${reason}. Evidence selection: ${evidenceOption}. Additional circumstances: ${additionalCircumstances || "None supplied"}. Verified PCN: ${JSON.stringify(pcnDetails)}. Reviewed invoice facts: ${JSON.stringify(invoice)}. Private evidence analysis: ${JSON.stringify(evidenceAnalysis)}. Treat postcode matching only as a clue, never proof of proximity. Distinguish a scheduled window from a confirmed delivery time. Only state supported facts. Do not invent loading, distances, delivery activity, legal grounds or an exemption. Do not put missing-evidence concerns or self-defeating statements in the challenge letter; return them only in missingInformation. If a material fact requires administrator confirmation, omit it from the letter and list it in missingInformation. Request cancellation.` }];
+  const invoice = pcn.invoiceEvidence ? { reference: pcn.invoiceEvidence.reference, invoiceDate: pcn.invoiceEvidence.invoiceDate?.toISOString().slice(0, 10) ?? null, deliveryDate: pcn.invoiceEvidence.deliveryDate?.toISOString().slice(0, 10) ?? null, deliveryAddress: pcn.invoiceEvidence.deliveryAddress, billingAddress: pcn.invoiceEvidence.billingAddress, recipient: pcn.invoiceEvidence.recipient, supplier: pcn.invoiceEvidence.supplier, description: pcn.invoiceEvidence.description, deliveryTime: pcn.invoiceEvidence.deliveryTime, deliveryTimeEnd: pcn.invoiceEvidence.deliveryTimeEnd, deliveryTimeKind: pcn.invoiceEvidence.deliveryTimeKind, otherFacts: pcn.invoiceEvidence.otherFacts } : null;
+  const evidenceAnalysis = analyzeDeliveryEvidence({ pcnLocation: pcn.contraventionLocation, pcnTime: contraventionTime, deliveryAddress: pcn.invoiceEvidence?.deliveryAddress, deliveryTime: pcn.invoiceEvidence?.deliveryTime, deliveryTimeEnd: pcn.invoiceEvidence?.deliveryTimeEnd, deliveryTimeKind: pcn.invoiceEvidence?.deliveryTimeKind });
+  const writingInput: ChallengeWritingInput = { stage, reason, evidenceOption, additionalCircumstances, pcn: pcnDetails, invoice, evidenceAnalysis };
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: buildChallengeWritingPrompt(writingInput) }];
 
   if (evidenceFile instanceof File) {
     const data = Buffer.from(await evidenceFile.arrayBuffer()).toString("base64");
@@ -102,8 +106,17 @@ async function handlePost(request: Request) {
     console.error("Challenge generation failed: operation=openai.parse-response; errorType=non-json.");
     return NextResponse.json({ error: "The AI service returned an invalid response. You can write or paste a challenge manually." }, { status: 502 });
   }
-  try { return NextResponse.json({ generation: parseChallengeGeneration(JSON.parse(extractResponseOutputText(payload) ?? "")) }); }
-  catch { return NextResponse.json({ error: "The AI response was incomplete. You can write a challenge manually." }, { status: 502 }); }
+  try {
+    const generation = parseChallengeGeneration(JSON.parse(extractResponseOutputText(payload) ?? ""));
+    const qualityIssues = challengeQualityIssues(generation, writingInput);
+    if (qualityIssues.length) {
+      console.error(`Challenge generation failed: operation=quality-check; issueCount=${qualityIssues.length}.`);
+      return NextResponse.json({ error: "The generated draft did not pass the factual quality checks. Review the saved evidence or write the challenge manually." }, { status: 502 });
+    }
+    return NextResponse.json({ generation });
+  } catch {
+    return NextResponse.json({ error: "The AI response was incomplete. You can write a challenge manually." }, { status: 502 });
+  }
 }
 
 export async function POST(request: Request) {

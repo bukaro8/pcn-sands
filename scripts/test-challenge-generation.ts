@@ -1,6 +1,7 @@
 import { extractResponseOutputText, issuerChallengeDescription, parseChallengeGeneration, readChallengeGenerationResponse } from "../src/lib/challenge-generation";
 import { validateTemporaryEvidence } from "../src/lib/temporary-upload";
 import { analyzeDeliveryEvidence, extractContraventionTime } from "../src/lib/delivery-evidence";
+import { buildChallengeWritingPrompt, buildChatGptChallengePrompt, challengeQualityIssues, type ChallengeWritingInput } from "../src/lib/challenge-writing";
 
 async function main() {
 const mockGeneration = {
@@ -62,6 +63,72 @@ if (contradictory.time.status !== "OUTSIDE_STATED_WINDOW") throw new Error("Cont
 const exactAddress = analyzeDeliveryEvidence({ pcnLocation: "201-203 Tooting High Street, SW17 0SZ", deliveryAddress: "201–203 Tooting High Street SW17 0SZ", pcnTime: null, deliveryTime: null, deliveryTimeEnd: null, deliveryTimeKind: null });
 if (exactAddress.location.status !== "VERIFIED_NEARBY") throw new Error("Matching reviewed addresses were not recognised");
 if (extractContraventionTime("Contravention description: example\nContravention time: 11:24") !== "11:24") throw new Error("Stored PCN time was not recovered");
+
+const writingInput: ChallengeWritingInput = {
+  stage: "INITIAL",
+  reason: "LOADING_UNLOADING",
+  evidenceOption: "DELIVERY_INVOICE",
+  additionalCircumstances: "The driver confirms the vehicle stopped only as long as necessary to unload the consignment recorded on the invoice.",
+  pcn: {
+    reference: "TF12345678",
+    vehicleRegistration: "AB12 CDE",
+    issuerName: "Transport for London",
+    issuerType: "TRANSPORT_AUTHORITY",
+    contraventionCode: "46",
+    contraventionLocation: "Trevelyan Road, SW17",
+    contraventionDate: "2026-11-02",
+    contraventionTime: "11:24",
+    issueDate: "2026-11-03",
+    noticeType: "ORIGINAL_PCN",
+    caseNotes: "Red route restriction shown on the notice.",
+  },
+  invoice: {
+    reference: "INV-100",
+    invoiceDate: "2026-11-02",
+    deliveryDate: "2026-11-02",
+    deliveryAddress: "201–203 Tooting High Street, SW17 0SZ",
+    billingAddress: null,
+    recipient: "Example Foods Ltd",
+    supplier: "Example Deliveries Ltd",
+    description: "Food delivery",
+    deliveryTime: "11:00",
+    deliveryTimeEnd: "11:30",
+    deliveryTimeKind: "SCHEDULED_WINDOW",
+    otherFacts: null,
+  },
+  evidenceAnalysis: nearbyWindow,
+};
+const professionalLetter = `Dear Sir or Madam,
+
+I am writing to challenge PCN TF12345678 issued to vehicle AB12 CDE in Trevelyan Road on 2 November 2026.
+
+The driver confirms that the vehicle stopped only for the time needed to unload the consignment recorded on invoice INV-100 for Example Foods Ltd at 201–203 Tooting High Street. The PCN observation time of 11:24 falls within the invoice's stated delivery window of 11:00 to 11:30. The PCN location and delivery address are both recorded in the SW17 postcode district, and the invoice is supplied in support of the circumstances described.
+
+Please consider the enclosed delivery evidence and cancel the PCN.
+
+Yours faithfully`;
+const professionalGeneration = { ...mockGeneration, challengeText: professionalLetter, evidence: { deliveryAddress: writingInput.invoice!.deliveryAddress, deliveryDate: writingInput.invoice!.deliveryDate, companyOrRecipient: writingInput.invoice!.recipient, reference: writingInput.invoice!.reference }, missingInformation: nearbyWindow.missingFacts };
+if (challengeQualityIssues(professionalGeneration, writingInput).length) throw new Error(`Professional delivery challenge failed quality checks: ${challengeQualityIssues(professionalGeneration, writingInput).join("; ")}`);
+const apiPrompt = buildChallengeWritingPrompt(writingInput);
+if (!apiPrompt.includes("experienced UK parking appeals specialist") || !apiPrompt.includes("TfL red route") || !apiPrompt.includes("scheduled delivery window as a confirmed delivery time") || !apiPrompt.includes("TF12345678")) throw new Error("Professional API writing brief is incomplete");
+const fallback = buildChatGptChallengePrompt({ stage: writingInput.stage, reason: writingInput.reason, additionalCircumstances: writingInput.additionalCircumstances, facts: { ...writingInput.pcn, invoice: writingInput.invoice, evidenceAnalysis: writingInput.evidenceAnalysis } });
+if (!fallback.includes("Return only the finished editable challenge letter") || !fallback.includes("TF12345678") || !fallback.includes("scheduled delivery window is not a confirmed delivery time")) throw new Error("ChatGPT fallback did not preserve the writing safeguards");
+for (const [label, challengeText] of [
+  ["internal heading", professionalLetter.replace("Dear Sir or Madam,", "Grounds: Loading / unloading")],
+  ["invented proximity", professionalLetter.replace("both recorded in the SW17 postcode district", "in close proximity")],
+  ["unsupported law", professionalLetter.replace("Please consider", "Under the Traffic Management Act, you must cancel this PCN. Please consider")],
+  ["scheduled time overstated", professionalLetter.replace("falls within the invoice's stated delivery window", "confirms delivery took place")],
+] as const) {
+  if (!challengeQualityIssues({ ...professionalGeneration, challengeText }, writingInput).length) throw new Error(`Quality checks accepted ${label}`);
+}
+const contradictoryInput = { ...writingInput, pcn: { ...writingInput.pcn, contraventionTime: "12:15" }, evidenceAnalysis: contradictory };
+if (!challengeQualityIssues(professionalGeneration, contradictoryInput).some((issue) => issue.includes("time comparison"))) throw new Error("Contradictory time claim passed quality checks");
+if (!challengeQualityIssues({ ...professionalGeneration, challengeText: professionalLetter.replace("TF12345678", "TF00000000") }, writingInput).some((issue) => issue.includes("PCN reference"))) throw new Error("Incorrect PCN reference passed quality checks");
+if (!challengeQualityIssues({ ...professionalGeneration, evidence: { ...professionalGeneration.evidence, reference: "INV-999" } }, writingInput).some((issue) => issue.includes("invoice reference"))) throw new Error("Incorrect invoice reference passed quality checks");
+if (!challengeQualityIssues({ ...professionalGeneration, evidence: { ...professionalGeneration.evidence, deliveryDate: "2026-11-03" } }, writingInput).some((issue) => issue.includes("delivery date"))) throw new Error("Incorrect delivery date passed quality checks");
+if (!challengeQualityIssues({ ...professionalGeneration, evidence: { ...professionalGeneration.evidence, deliveryAddress: "1 Unrelated Street" } }, writingInput).some((issue) => issue.includes("delivery address"))) throw new Error("Incorrect delivery address passed quality checks");
+const noInvoicePrompt = buildChallengeWritingPrompt({ ...writingInput, evidenceOption: "NO_ADDITIONAL_EVIDENCE", invoice: null });
+if (!noInvoicePrompt.includes("Do not imply that an invoice or delivery document exists")) throw new Error("No-invoice case could invent delivery evidence");
 
 const validEvidence = new File(["evidence"], "invoice.pdf", { type: "application/pdf" });
 const invalidEvidence = new File(["evidence"], "invoice.exe", { type: "application/octet-stream" });

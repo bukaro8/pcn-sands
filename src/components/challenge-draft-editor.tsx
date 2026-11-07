@@ -6,6 +6,7 @@ import { markChallengeSubmitted, saveChallengeDraft } from "@/app/actions";
 import { readChallengeGenerationResponse, type ChallengeGeneration } from "@/lib/challenge-generation";
 import { challengeStages, dateInputValue, statusLabel } from "@/lib/pcn";
 import type { DeliveryEvidenceAnalysis } from "@/lib/delivery-evidence";
+import { buildChatGptChallengePrompt } from "@/lib/challenge-writing";
 
 type Draft = { id?: string; stage?: string; challengeText?: string | null; expectedResponseDate?: Date | null; nextStatusCheckDate?: Date | null };
 const inputClass = "mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-600 focus:outline-none";
@@ -17,7 +18,7 @@ export function ChallengeDraftEditor({ pcnId, draft = {}, facts, evidenceAnalysi
   const [generation, setGeneration] = useState<ChallengeGeneration | null>(null);
   const today = new Date().toISOString().slice(0, 10);
   const [copied, setCopied] = useState(false);
-  function fallbackPrompt(form: HTMLFormElement) { const data = new FormData(form); return `Write a concise professional British English PCN challenge letter for manual review. Use only verified facts. Do not invent loading activity, delivery time, exemptions or legal claims. An invoice alone does not prove delivery or a parking exemption. Flag missing or inconsistent information. Request cancellation. Return only editable challenge text. Stage: ${String(data.get("stage"))}. Reason: ${String(data.get("reason"))}. Additional circumstances: ${String(data.get("additionalCircumstances") || "none")}. Verified case and reviewed invoice facts: ${JSON.stringify(facts ?? {})}`; }
+  function fallbackPrompt(form: HTMLFormElement) { const data = new FormData(form); return buildChatGptChallengePrompt({ stage: String(data.get("stage")), reason: String(data.get("reason")), additionalCircumstances: String(data.get("additionalCircumstances") || ""), facts: facts ?? {} }); }
 
   async function generate(form: HTMLFormElement) {
     setGenerating(true); setError(null);
