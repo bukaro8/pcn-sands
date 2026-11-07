@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { markChallengeSubmitted, saveChallengeDraft } from "@/app/actions";
-import type { ChallengeGeneration } from "@/lib/challenge-generation";
+import { readChallengeGenerationResponse, type ChallengeGeneration } from "@/lib/challenge-generation";
 import { challengeStages, dateInputValue, statusLabel } from "@/lib/pcn";
 
 type Draft = { id?: string; stage?: string; challengeText?: string | null; expectedResponseDate?: Date | null; nextStatusCheckDate?: Date | null };
@@ -25,9 +25,8 @@ export function ChallengeDraftEditor({ pcnId, draft = {}, facts }: { pcnId: stri
     if (evidence) data.append("evidence", evidence);
     try {
       const response = await fetch("/api/challenge-generation", { method: "POST", body: data });
-      const payload = await response.json() as { generation?: ChallengeGeneration; error?: string };
-      if (!response.ok || !payload.generation) throw new Error(payload.error ?? "Challenge generation failed.");
-      setGeneration(payload.generation); setText(payload.generation.challengeText);
+      const result = await readChallengeGenerationResponse(response);
+      setGeneration(result); setText(result.challengeText);
     } catch (generationError) { setError(generationError instanceof Error ? generationError.message : "Challenge generation failed."); }
     finally { setGenerating(false); }
   }
