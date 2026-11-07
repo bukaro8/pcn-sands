@@ -2,7 +2,7 @@ import { noticeTypes } from "@/lib/pcn";
 
 export const pcnPrompt = `Read the attached UK parking PCN photograph carefully and extract only information that is visible in the notice.
 
-Return exactly one valid JSON object. Use double-quoted property names and properly escaped JSON strings. Include every key listed below, even when its value is null. Do not include Markdown fences, HTML entities, explanatory text, comments, or any content before or after the JSON object.
+Return exactly one valid JSON object inside a single \`\`\`json code block. Use double-quoted property names and properly escaped JSON strings. Include every key listed below, even when its value is null. Do not include HTML entities, explanatory text, comments, or any text before or after the code block.
 
 Use schemaVersion "pcn-1" and exactly these keys: schemaVersion, reference, registration, issuerName, issuerType, noticeType, contraventionCode, contraventionDescription, contraventionLocation, contraventionDate, contraventionTime, issueDate, paymentDeadline, penaltyAmount, discountedAmount, fullPenaltyAmount, discountDeadline, fullPaymentDeadline, discountPeriodDays, discountPeriodStartDate, notes.
 
@@ -16,9 +16,9 @@ Never assume a 14-day period. If the notice explicitly states a discount period 
 
 Distinguish the contravention date from the issue date. Use null for anything missing, ambiguous, or unreadable. Never invent information or infer a deadline from a customary rule.
 
-Attach the PCN photograph, send this prompt, then use ChatGPT's Copy button to copy only the JSON object into Sands PCN Management.`;
+Attach the PCN photograph, send this prompt, then use the code block's Copy button to copy only the JSON object into Sands PCN Management.`;
 
-export const invoicePrompt = `Read the attached delivery invoice carefully. Return exactly one JSON object, with no Markdown or commentary. Use schemaVersion "invoice-1" and these keys: schemaVersion, reference, invoiceDate, deliveryDate, deliveryAddress, billingAddress, recipient, supplier, description, deliveryTime, otherFacts. Use strings or null for every field except schemaVersion. Dates must be YYYY-MM-DD, time HH:mm (24-hour). Distinguish invoice date from an explicitly recorded delivery date and billing address from delivery address. An invoice's creation does not prove delivery occurred. Use null for absent, ambiguous or unreadable facts. Never invent delivery activity, loading, times or events. Attach the invoice before sending this prompt.`;
+export const invoicePrompt = `Read the attached delivery invoice carefully. Return exactly one valid JSON object inside a single \`\`\`json code block, with no text or commentary before or after the code block. Use schemaVersion "invoice-1" and these keys: schemaVersion, reference, invoiceDate, deliveryDate, deliveryAddress, billingAddress, recipient, supplier, description, deliveryTime, otherFacts. Use strings or null for every field except schemaVersion. Dates must be YYYY-MM-DD, time HH:mm (24-hour). Distinguish invoice date from an explicitly recorded delivery date and billing address from delivery address. An invoice's creation does not prove delivery occurred. Use null for absent, ambiguous or unreadable facts. Never invent delivery activity, loading, times or events. Attach the invoice, send this prompt, then use the code block's Copy button to copy only the JSON object.`;
 
 type Result = { values: Record<string, string | null>; errors: Record<string, string>; calculatedFields: string[] };
 const pcnFields = ["reference", "registration", "issuerName", "issuerType", "noticeType", "contraventionCode", "contraventionDescription", "contraventionLocation", "contraventionDate", "contraventionTime", "issueDate", "paymentDeadline", "penaltyAmount", "discountedAmount", "fullPenaltyAmount", "discountDeadline", "fullPaymentDeadline", "discountPeriodDays", "discountPeriodStartDate", "notes"] as const;
