@@ -7,7 +7,7 @@ Private, single-user operational application for managing penalty charge notices
 - Next.js App Router with TypeScript
 - Tailwind CSS and shadcn/ui conventions
 - PostgreSQL with Prisma ORM and committed Prisma migrations
-- Production multi-stage Docker image for Coolify
+- Production multi-stage Docker image for Coolify.
 
 ## Local development
 
