@@ -10,6 +10,7 @@ datasource db {
 enum IssuerType {
   COUNCIL
   PRIVATE
+  TRANSPORT_AUTHORITY
 }
 
 enum NoticeType {

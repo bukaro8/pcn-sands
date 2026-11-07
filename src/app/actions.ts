@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, logDatabaseError } from "@/lib/database-errors";
-import { challengeOutcomes, challengeStages, challengeStatuses, noticeTypes, paymentStatuses } from "@/lib/pcn";
+import { challengeOutcomes, challengeStages, challengeStatuses, issuerTypes, noticeTypes, paymentStatuses } from "@/lib/pcn";
 import { getOrCreateVehicle, normalizeUkRegistration } from "@/lib/vehicles";
 import { createOrGetReport } from "@/lib/reporting";
 import { sendReportEmail } from "@/lib/jobs";
@@ -58,6 +58,10 @@ function issuerNormalizedName(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function isTransportForLondon(normalizedName: string): boolean {
+  return ["transport for london", "transport for london (tfl)", "tfl"].includes(normalizedName);
+}
+
 function actionError(path: string, error: unknown): never {
   const safeMessages = [
     "Selected issuer no longer exists", "Select an issuer or enter a new issuer name", "Issuer name is too long",
@@ -95,7 +99,11 @@ async function resolveIssuer(formData: FormData): Promise<string> {
   const name = value(formData, "newIssuerName");
   if (!name) throw new Error("Select an issuer or enter a new issuer name");
   if (name.length > 160) throw new Error("Issuer name is too long");
-  const type = value(formData, "newIssuerType") === "PRIVATE" ? "PRIVATE" : "COUNCIL";
+  const normalizedName = issuerNormalizedName(name);
+  const selectedType = value(formData, "newIssuerType");
+  const type = isTransportForLondon(normalizedName)
+    ? "TRANSPORT_AUTHORITY"
+    : issuerTypes.includes(selectedType as typeof issuerTypes[number]) ? selectedType as typeof issuerTypes[number] : "COUNCIL";
   const challengeUrl = optionalValue(formData, "newIssuerChallengeUrl");
 
   if (challengeUrl) {
@@ -107,9 +115,9 @@ async function resolveIssuer(formData: FormData): Promise<string> {
   }
 
   const issuer = await prisma.issuer.upsert({
-    where: { normalizedName: issuerNormalizedName(name) },
-    create: { name, normalizedName: issuerNormalizedName(name), type, challengeUrl },
-    update: {},
+    where: { normalizedName },
+    create: { name, normalizedName, type, challengeUrl },
+    update: isTransportForLondon(normalizedName) ? { type: "TRANSPORT_AUTHORITY" } : {},
   });
   return issuer.id;
 }

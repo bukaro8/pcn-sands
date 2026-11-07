@@ -36,6 +36,8 @@ const legacyPcn = parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", referenc
 assert(!Object.keys(legacyPcn.errors).length && legacyPcn.values.penaltyAmount === "65.00", "Existing pcn-1 import compatibility failed");
 const numericStringPeriod = parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", discountPeriodDays: "21" }));
 assert(!Object.keys(numericStringPeriod.errors).length && numericStringPeriod.values.discountPeriodDays === "21", "Numeric-string discount period was not accepted and normalised");
+const transportAuthority = parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", issuerName: "Transport for London", issuerType: "TRANSPORT_AUTHORITY" }));
+assert(!Object.keys(transportAuthority.errors).length && transportAuthority.values.issuerType === "TRANSPORT_AUTHORITY", "Transport authority issuer type was rejected");
 assert(Boolean(parsePcnJson("not json").errors.json), "Malformed JSON accepted");
 assert(Boolean(parsePcnJson('{\\"schemaVersion\\":\\"pcn-1\\"').errors.json), "Escaped, incomplete JSON accepted");
 assert(Boolean(parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", notes: "A&#x20;B" })).errors.json), "HTML-escaped JSON content accepted");
@@ -43,7 +45,7 @@ assert(Boolean(parsePcnJson('{"schemaVersion":"pcn-1","issueDate":"2026-02-30"}'
 assert(Boolean(parsePcnJson('{"schemaVersion":"pcn-1","unexpected":"value"}').errors.unexpected), "Unknown field accepted");
 assert(parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", discountPeriodDays: "14", discountPeriodStartDate: null, discountDeadline: null })).values.discountDeadline === null, "Deadline was invented without a start date");
 assert(Boolean(parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", discountPeriodDays: "14", discountPeriodStartDate: "2026-09-23", discountDeadline: "2026-10-07" })).errors.discountDeadline), "Inconsistent inclusive deadline accepted");
-assert(pcnPrompt.includes("exactly one valid JSON object") && pcnPrompt.includes("HTML entities") && pcnPrompt.includes("Copy button"), "Reusable prompt is missing reliable-copy instructions");
+assert(pcnPrompt.includes("exactly one valid JSON object") && pcnPrompt.includes("HTML entities") && pcnPrompt.includes("Copy button") && pcnPrompt.includes("Classify Transport for London as TRANSPORT_AUTHORITY"), "Reusable prompt is missing reliable-copy or issuer-classification instructions");
 
 const invoice = parseInvoiceJson(JSON.stringify({ schemaVersion: "invoice-1", reference: "INV-123", invoiceDate: "2026-11-01", deliveryDate: null, billingAddress: "Billing Street", deliveryAddress: null, deliveryTime: null }));
 assert(!Object.keys(invoice.errors).length && invoice.values.deliveryDate === null && invoice.values.deliveryAddress === null && invoice.values.billingAddress === "Billing Street", "Invoice dates or addresses were conflated");

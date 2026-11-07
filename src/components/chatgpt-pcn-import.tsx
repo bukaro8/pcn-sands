@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { calculateInclusiveDeadline, isDiscountExpired, parsePcnJson, pcnPrompt } from "@/lib/chatgpt-import";
 import { createPcn } from "@/app/actions";
-import { noticeTypes, statusLabel } from "@/lib/pcn";
+import { issuerTypes, noticeTypes, statusLabel } from "@/lib/pcn";
 
 type Issuer = { id: string; name: string; type: string };
 const input = "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
@@ -60,17 +60,19 @@ export function ChatGptPcnImport({ issuers }: { issuers: Issuer[] }) {
       <label className="text-sm font-medium">Notice type<select className={input} name="noticeType" onChange={(event) => change("noticeType", event.target.value)} value={fields.noticeType || "ORIGINAL_PCN"}>{noticeTypes.map((v) => <option key={v} value={v}>{statusLabel(v)}</option>)}</select></label>
       <label className="text-sm font-medium">Existing issuer<select className={input} name="issuerId" onChange={(event) => change("issuerId",event.target.value)} value={fields.issuerId ?? ""}><option value="">Create issuer from name below</option>{issuers.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
       <label className="text-sm font-medium">Issuer name<input className={input} name="newIssuerName" onChange={(event) => change("issuerName",event.target.value)} value={fields.issuerName ?? ""} /></label>
-      <label className="text-sm font-medium">Issuer type<select className={input} name="newIssuerType" onChange={(event) => change("issuerType",event.target.value)} value={fields.issuerType || "COUNCIL"}><option value="COUNCIL">Council</option><option value="PRIVATE">Private parking company</option></select></label>
+      <label className="text-sm font-medium">Issuer type<select className={input} name="newIssuerType" onChange={(event) => change("issuerType",event.target.value)} value={fields.issuerType || "COUNCIL"}>{issuerTypes.map((type) => <option key={type} value={type}>{statusLabel(type)}</option>)}</select></label>
     </div>
-    <fieldset className="grid gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:grid-cols-2"><legend className="px-1 font-semibold text-emerald-950">Payment terms shown on the notice</legend>
-      <p className="sm:col-span-2 text-sm text-emerald-950">The discounted terms are shown first. Confirm every amount and date against the notice.</p>
-      <label className="text-sm font-semibold">Discounted amount (£)<input className={input} inputMode="decimal" name="discountedAmount" onChange={(event) => change("discountedAmount", event.target.value)} value={fields.discountedAmount ?? ""} /></label>
-      <label className="text-sm font-semibold">Discount deadline<input className={input} name="discountDeadline" onChange={(event) => change("discountDeadline", event.target.value)} type="date" value={fields.discountDeadline ?? ""} /></label>
-      {isDiscountExpired(fields.discountDeadline) && <p className="sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900">This discount deadline has passed. The reduced amount may no longer be available; check the latest notice before acting.</p>}
-      <label className="text-sm font-medium">Full penalty amount (£)<input className={input} inputMode="decimal" name="fullPenaltyAmount" onChange={(event) => change("fullPenaltyAmount", event.target.value)} value={fields.fullPenaltyAmount ?? ""} /></label>
-      <label className="text-sm font-medium">Full-payment deadline<input className={input} name="fullPaymentDeadline" onChange={(event) => change("fullPaymentDeadline", event.target.value)} type="date" value={fields.fullPaymentDeadline ?? ""} /></label>
-      <label className="text-sm font-medium">Discount period starts<input className={input} name="discountPeriodStartDate" onChange={(event) => change("discountPeriodStartDate", event.target.value)} type="date" value={fields.discountPeriodStartDate ?? ""} /></label>
-      <label className="text-sm font-medium">Inclusive discount days<input className={input} max="366" min="1" name="discountPeriodDays" onChange={(event) => change("discountPeriodDays", event.target.value)} type="number" value={fields.discountPeriodDays ?? ""} /></label>
+    <fieldset className="capture-payment-terms"><legend>Payment terms shown on the notice</legend>
+      <div className="capture-payment-terms-grid">
+        <p className="capture-payment-terms-help">The discounted terms are shown first. Confirm every amount and date against the notice.</p>
+        <label className="capture-payment-terms-primary">Discounted amount (£)<input className={input} inputMode="decimal" name="discountedAmount" onChange={(event) => change("discountedAmount", event.target.value)} value={fields.discountedAmount ?? ""} /></label>
+        <label className="capture-payment-terms-primary">Discount deadline<input className={input} name="discountDeadline" onChange={(event) => change("discountDeadline", event.target.value)} type="date" value={fields.discountDeadline ?? ""} /></label>
+        {isDiscountExpired(fields.discountDeadline) && <p className="capture-payment-terms-warning">This discount deadline has passed. The reduced amount may no longer be available; check the latest notice before acting.</p>}
+        <label>Full penalty amount (£)<input className={input} inputMode="decimal" name="fullPenaltyAmount" onChange={(event) => change("fullPenaltyAmount", event.target.value)} value={fields.fullPenaltyAmount ?? ""} /></label>
+        <label>Full-payment deadline<input className={input} name="fullPaymentDeadline" onChange={(event) => change("fullPaymentDeadline", event.target.value)} type="date" value={fields.fullPaymentDeadline ?? ""} /></label>
+        <label>Discount period starts<input className={input} name="discountPeriodStartDate" onChange={(event) => change("discountPeriodStartDate", event.target.value)} type="date" value={fields.discountPeriodStartDate ?? ""} /></label>
+        <label>Inclusive discount days<input className={input} max="366" min="1" name="discountPeriodDays" onChange={(event) => change("discountPeriodDays", event.target.value)} type="number" value={fields.discountPeriodDays ?? ""} /></label>
+      </div>
     </fieldset>
     <input name="paymentAmount" type="hidden" value={operationalAmount} /><input name="paymentDeadline" type="hidden" value={operationalDeadline} /><input name="challengeStatus" type="hidden" value="AWAITING_CHALLENGE" /><input name="paymentStatus" type="hidden" value="NOT_REQUIRED" />
     <button className="rounded-lg bg-emerald-800 px-4 py-2 text-white" disabled={Boolean(match?.existingPcnId)} type="submit">Save reviewed PCN</button>

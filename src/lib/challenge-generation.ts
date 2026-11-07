@@ -9,6 +9,12 @@ export type ChallengeGeneration = {
   missingInformation: string[];
 };
 
+export function issuerChallengeDescription(type: string): string {
+  if (type === "PRIVATE") return "private parking company";
+  if (type === "TRANSPORT_AUTHORITY") return "transport authority";
+  return "local council";
+}
+
 function optionalText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }

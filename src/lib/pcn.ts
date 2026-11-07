@@ -7,6 +7,8 @@ export const challengeStatuses = [
 
 export const paymentStatuses = ["NOT_REQUIRED", "PAYMENT_REQUIRED", "PAYMENT_UNCONFIRMED", "PAID"] as const;
 
+export const issuerTypes = ["COUNCIL", "PRIVATE", "TRANSPORT_AUTHORITY"] as const;
+
 export const noticeTypes = ["ORIGINAL_PCN", "NOTICE_TO_OWNER", "PRIVATE_PARKING_NOTICE", "OTHER"] as const;
 
 export const challengeStages = ["INITIAL", "FORMAL", "INDEPENDENT"] as const;
@@ -22,6 +24,7 @@ const labels: Record<string, string> = {
   ORIGINAL_PCN: "Original PCN",
   NOTICE_TO_OWNER: "Notice to Owner",
   PRIVATE_PARKING_NOTICE: "Private parking notice",
+  TRANSPORT_AUTHORITY: "Transport authority",
   CHALLENGE_STATUS_CHECK: "Challenge status check",
 };
 

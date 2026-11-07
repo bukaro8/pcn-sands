@@ -7,9 +7,9 @@ async function main() {
   const registration = `v${Date.now()}`;
   const issuer = await prisma.issuer.create({
     data: {
-      name: `Verification Council ${suffix}`,
-      normalizedName: `verification council ${suffix}`,
-      type: "COUNCIL",
+      name: `Verification Transport Authority ${suffix}`,
+      normalizedName: `verification transport authority ${suffix}`,
+      type: "TRANSPORT_AUTHORITY",
     },
   });
 
@@ -94,6 +94,7 @@ async function main() {
     if (
       verified.vehicle.id !== vehicleId ||
       verified.issuer.id !== issuer.id ||
+      verified.issuer.type !== "TRANSPORT_AUTHORITY" ||
       verified.challenges.length !== 1 ||
       verified.reportEntries[0]?.paymentNoticeNumber !== 1 ||
       verified.reminders.length !== 1

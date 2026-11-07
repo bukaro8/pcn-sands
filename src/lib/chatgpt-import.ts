@@ -8,7 +8,7 @@ Use schemaVersion "pcn-1" and exactly these keys: schemaVersion, reference, regi
 
 Return this exact object shape with the verified values filled in: {"schemaVersion":"pcn-1","reference":null,"registration":null,"issuerName":null,"issuerType":null,"noticeType":null,"contraventionCode":null,"contraventionDescription":null,"contraventionLocation":null,"contraventionDate":null,"contraventionTime":null,"issueDate":null,"paymentDeadline":null,"penaltyAmount":null,"discountedAmount":null,"fullPenaltyAmount":null,"discountDeadline":null,"fullPaymentDeadline":null,"discountPeriodDays":null,"discountPeriodStartDate":null,"notes":null}
 
-Use strings or null for every field except schemaVersion and discountPeriodDays. discountPeriodDays must be a JSON whole number or null. issuerType must be COUNCIL, PRIVATE, or null. noticeType must be ORIGINAL_PCN, NOTICE_TO_OWNER, PRIVATE_PARKING_NOTICE, OTHER, or null. Dates must be YYYY-MM-DD, time must be HH:mm in 24-hour format, and GBP amounts must be decimal text without a currency symbol.
+Use strings or null for every field except schemaVersion and discountPeriodDays. discountPeriodDays must be a JSON whole number or null. issuerType must be COUNCIL, PRIVATE, TRANSPORT_AUTHORITY, or null. Classify Transport for London as TRANSPORT_AUTHORITY. noticeType must be ORIGINAL_PCN, NOTICE_TO_OWNER, PRIVATE_PARKING_NOTICE, OTHER, or null. Dates must be YYYY-MM-DD, time must be HH:mm in 24-hour format, and GBP amounts must be decimal text without a currency symbol.
 
 penaltyAmount is the primary operational amount: use the discounted amount when a discounted payment offer is shown; otherwise use the full amount. paymentDeadline is the corresponding primary deadline. Put the discounted and full amounts separately in discountedAmount and fullPenaltyAmount. Distinguish discountDeadline from fullPaymentDeadline.
 
@@ -72,7 +72,7 @@ function parse(raw: string, version: string, fields: readonly string[]): Result 
 
 export function parsePcnJson(raw: string): Result {
   const result = parse(raw, "pcn-1", pcnFields); const v = result.values;
-  if (v.issuerType && !["COUNCIL", "PRIVATE"].includes(v.issuerType)) result.errors.issuerType = "Choose COUNCIL or PRIVATE.";
+  if (v.issuerType && !["COUNCIL", "PRIVATE", "TRANSPORT_AUTHORITY"].includes(v.issuerType)) result.errors.issuerType = "Choose COUNCIL, PRIVATE or TRANSPORT_AUTHORITY.";
   if (v.noticeType && !noticeTypes.includes(v.noticeType as typeof noticeTypes[number])) result.errors.noticeType = "Unknown notice type.";
   for (const key of amountFields) if (v[key] && !/^\d{1,7}(\.\d{1,2})?$/.test(v[key])) result.errors[key] = "Use a GBP amount such as 65.00.";
   if (v.discountPeriodDays && !/^\d{1,3}$/.test(v.discountPeriodDays)) result.errors.discountPeriodDays = "Use a whole number of inclusive days or null.";

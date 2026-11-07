@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appConfig } from "@/lib/config";
-import { challengeGenerationSchema, parseChallengeGeneration } from "@/lib/challenge-generation";
+import { challengeGenerationSchema, issuerChallengeDescription, parseChallengeGeneration } from "@/lib/challenge-generation";
 import { temporaryEvidenceTypes, validateTemporaryEvidence } from "@/lib/temporary-upload";
 import { isAdmin } from "@/lib/require-admin";
 
@@ -48,7 +48,8 @@ export async function POST(request: Request) {
     noticeType: pcn.noticeType,
   };
   const invoice = pcn.invoiceEvidence ? { reference: pcn.invoiceEvidence.reference, invoiceDate: pcn.invoiceEvidence.invoiceDate?.toISOString().slice(0, 10), deliveryDate: pcn.invoiceEvidence.deliveryDate?.toISOString().slice(0, 10), deliveryAddress: pcn.invoiceEvidence.deliveryAddress, billingAddress: pcn.invoiceEvidence.billingAddress, recipient: pcn.invoiceEvidence.recipient, supplier: pcn.invoiceEvidence.supplier, description: pcn.invoiceEvidence.description, deliveryTime: pcn.invoiceEvidence.deliveryTime, otherFacts: pcn.invoiceEvidence.otherFacts } : null;
-  const content: Array<Record<string, string>> = [{ type: "input_text", text: `Draft a concise, professional challenge in British English for manual submission. This is a ${stage.toLowerCase()} challenge to a ${pcn.issuer.type.toLowerCase()} issuer. Selected reason: ${reason}. Evidence selection: ${evidenceOption}. Additional circumstances: ${additionalCircumstances || "None supplied"}. Verified PCN: ${JSON.stringify(pcnDetails)}. Reviewed invoice facts: ${JSON.stringify(invoice)}. Invoice date is not proof of delivery; billing address is not delivery address. Flag inconsistent dates and missing facts. Only state facts in these details. Do not invent loading, delivery times, legal grounds or an exemption. Request cancellation and list material missing information separately.` }];
+  const issuerDescription = issuerChallengeDescription(pcn.issuer.type);
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: `Draft a concise, professional challenge in British English for manual submission. This is a ${stage.toLowerCase()} challenge to a ${issuerDescription}. Use terminology appropriate to that issuer type. Selected reason: ${reason}. Evidence selection: ${evidenceOption}. Additional circumstances: ${additionalCircumstances || "None supplied"}. Verified PCN: ${JSON.stringify(pcnDetails)}. Reviewed invoice facts: ${JSON.stringify(invoice)}. Invoice date is not proof of delivery; billing address is not delivery address. Flag inconsistent dates and missing facts. Only state facts in these details. Do not invent loading, delivery times, legal grounds or an exemption. Request cancellation and list material missing information separately.` }];
 
   if (evidenceFile instanceof File) {
     const data = Buffer.from(await evidenceFile.arrayBuffer()).toString("base64");

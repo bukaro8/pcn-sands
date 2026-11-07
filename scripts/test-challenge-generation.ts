@@ -1,4 +1,4 @@
-import { parseChallengeGeneration } from "../src/lib/challenge-generation";
+import { issuerChallengeDescription, parseChallengeGeneration } from "../src/lib/challenge-generation";
 import { validateTemporaryEvidence } from "../src/lib/temporary-upload";
 
 const mockGeneration = {
@@ -11,6 +11,7 @@ if (!parsed.challengeText.includes("Please cancel") || parsed.evidence.reference
 let invalidResponseRejected = false;
 try { parseChallengeGeneration({ challengeText: "", evidence: {}, missingInformation: [] }); } catch { invalidResponseRejected = true; }
 if (!invalidResponseRejected) throw new Error("Invalid challenge response was accepted");
+if (issuerChallengeDescription("COUNCIL") !== "local council" || issuerChallengeDescription("PRIVATE") !== "private parking company" || issuerChallengeDescription("TRANSPORT_AUTHORITY") !== "transport authority") throw new Error("Issuer-specific challenge terminology failed");
 
 const validEvidence = new File(["evidence"], "invoice.pdf", { type: "application/pdf" });
 const invalidEvidence = new File(["evidence"], "invoice.exe", { type: "application/octet-stream" });
