@@ -21,11 +21,12 @@ const discountedPcn = parsePcnJson(JSON.stringify({
   fullPenaltyAmount: "130.00",
   discountDeadline: null,
   fullPaymentDeadline: null,
-  discountPeriodDays: "14",
+  discountPeriodDays: 14,
   discountPeriodStartDate: "2026-09-23",
   notes: null,
 }));
 assert(!Object.keys(discountedPcn.errors).length, "Valid discounted PCN failed validation");
+assert(discountedPcn.values.discountPeriodDays === "14", "Numeric discount period was not normalised to the internal format");
 assert(discountedPcn.values.discountDeadline === "2026-10-06" && discountedPcn.calculatedFields.includes("discountDeadline"), "Inclusive discount deadline was not calculated");
 assert(calculateInclusiveDeadline("2026-09-23", 14) === "2026-10-06", "Inclusive date example was calculated incorrectly");
 assert(isDiscountExpired("2026-10-06", new Date("2026-10-07T11:00:00.000Z")), "Expired discount was not detected");
@@ -33,6 +34,8 @@ assert(!isDiscountExpired("2026-10-06", new Date("2026-10-06T11:00:00.000Z")), "
 
 const legacyPcn = parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", reference: "LEGACY-1", registration: "AB12 CDE", penaltyAmount: "65.00", paymentDeadline: null }));
 assert(!Object.keys(legacyPcn.errors).length && legacyPcn.values.penaltyAmount === "65.00", "Existing pcn-1 import compatibility failed");
+const numericStringPeriod = parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", discountPeriodDays: "21" }));
+assert(!Object.keys(numericStringPeriod.errors).length && numericStringPeriod.values.discountPeriodDays === "21", "Numeric-string discount period was not accepted and normalised");
 assert(Boolean(parsePcnJson("not json").errors.json), "Malformed JSON accepted");
 assert(Boolean(parsePcnJson('{\\"schemaVersion\\":\\"pcn-1\\"').errors.json), "Escaped, incomplete JSON accepted");
 assert(Boolean(parsePcnJson(JSON.stringify({ schemaVersion: "pcn-1", notes: "A&#x20;B" })).errors.json), "HTML-escaped JSON content accepted");

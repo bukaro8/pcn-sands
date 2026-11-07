@@ -8,7 +8,7 @@ Use schemaVersion "pcn-1" and exactly these keys: schemaVersion, reference, regi
 
 Return this exact object shape with the verified values filled in: {"schemaVersion":"pcn-1","reference":null,"registration":null,"issuerName":null,"issuerType":null,"noticeType":null,"contraventionCode":null,"contraventionDescription":null,"contraventionLocation":null,"contraventionDate":null,"contraventionTime":null,"issueDate":null,"paymentDeadline":null,"penaltyAmount":null,"discountedAmount":null,"fullPenaltyAmount":null,"discountDeadline":null,"fullPaymentDeadline":null,"discountPeriodDays":null,"discountPeriodStartDate":null,"notes":null}
 
-Use strings or null for every field except schemaVersion. issuerType must be COUNCIL, PRIVATE, or null. noticeType must be ORIGINAL_PCN, NOTICE_TO_OWNER, PRIVATE_PARKING_NOTICE, OTHER, or null. Dates must be YYYY-MM-DD, time must be HH:mm in 24-hour format, and GBP amounts must be decimal text without a currency symbol.
+Use strings or null for every field except schemaVersion and discountPeriodDays. discountPeriodDays must be a JSON whole number or null. issuerType must be COUNCIL, PRIVATE, or null. noticeType must be ORIGINAL_PCN, NOTICE_TO_OWNER, PRIVATE_PARKING_NOTICE, OTHER, or null. Dates must be YYYY-MM-DD, time must be HH:mm in 24-hour format, and GBP amounts must be decimal text without a currency symbol.
 
 penaltyAmount is the primary operational amount: use the discounted amount when a discounted payment offer is shown; otherwise use the full amount. paymentDeadline is the corresponding primary deadline. Put the discounted and full amounts separately in discountedAmount and fullPenaltyAmount. Distinguish discountDeadline from fullPaymentDeadline.
 
@@ -61,6 +61,7 @@ function parse(raw: string, version: string, fields: readonly string[]): Result 
   for (const key of fields) {
     const fieldValue = record[key];
     if (fieldValue === undefined || fieldValue === null || fieldValue === "") { values[key] = null; continue; }
+    if (key === "discountPeriodDays" && typeof fieldValue === "number") { values[key] = String(fieldValue); continue; }
     if (typeof fieldValue !== "string" || fieldValue.length > 3000 || /[\u0000-\u0008\u000e-\u001f]/.test(fieldValue)) { errors[key] = "Use a plain text value or null."; continue; }
     const cleaned = fieldValue.trim(); values[key] = cleaned || null;
     if (dateFields.has(key) && !isIsoDate(cleaned)) errors[key] = "Use a real YYYY-MM-DD date or null.";
