@@ -36,6 +36,13 @@ async function main() {
       contraventionDate: new Date("2046-06-01T00:00:00.000Z"),
       issueDate: new Date("2046-06-01T00:00:00.000Z"),
       noticeType: "ORIGINAL_PCN",
+      paymentAmountPence: 6500,
+      paymentDeadline: new Date("2046-06-14T00:00:00.000Z"),
+      discountedAmountPence: 6500,
+      fullPenaltyAmountPence: 13000,
+      discountDeadline: new Date("2046-06-14T00:00:00.000Z"),
+      discountPeriodDays: 14,
+      discountPeriodStartDate: new Date("2046-06-01T00:00:00.000Z"),
     } });
     pcnId = pcn.id;
 
@@ -44,10 +51,11 @@ async function main() {
     if ((await prisma.pcn.findUniqueOrThrow({ where: { id: pcnId } })).challengeStatus !== "ACCEPTED") throw new Error("Accepted initial challenge was not retained");
 
     await prisma.challenge.update({ where: { id: accepted.id }, data: { outcome: "REJECTED", decisionDate: new Date("2046-06-03T00:00:00.000Z") } });
-    await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: "REJECTED", paymentStatus: "PAYMENT_REQUIRED", paymentDeadline, paymentAmountPence: 6500 } });
+    await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: "REJECTED", paymentStatus: "PAYMENT_REQUIRED", paymentDeadline, paymentAmountPence: 7000 } });
     const paymentReminder = await prisma.reminder.create({ data: { pcnId, type: "PAYMENT_DEADLINE", eventKey: `lifecycle-payment:${suffix}`, dueAt: new Date("2046-06-03T00:00:00.000Z") } });
     const rejected = await prisma.pcn.findUniqueOrThrow({ where: { id: pcnId } });
-    if (rejected.challengeStatus !== "REJECTED" || rejected.paymentStatus !== "PAYMENT_REQUIRED" || rejected.paymentAmountPence !== 6500 || rejected.paymentDeadline?.getTime() !== paymentDeadline.getTime()) throw new Error("Rejected challenge payment details were not retained");
+    if (rejected.challengeStatus !== "REJECTED" || rejected.paymentStatus !== "PAYMENT_REQUIRED" || rejected.paymentAmountPence !== 7000 || rejected.paymentDeadline?.getTime() !== paymentDeadline.getTime()) throw new Error("Rejected challenge payment details were not retained");
+    if (rejected.discountedAmountPence !== 6500 || rejected.fullPenaltyAmountPence !== 13000) throw new Error("Original notice amounts were overwritten by rejection terms");
 
     const firstChecklist = await getDailyChecklist(now);
     const decisionTask = firstChecklist.find((task) => task.pcnId === pcnId && task.type === "REVIEW_DECISION");
@@ -64,7 +72,7 @@ async function main() {
     const report = await createOrGetReport("WEEKLY", new Date("2046-06-05T06:00:00.000Z"));
     reportIds.push(report.id);
     const paymentEntry = report.entries.find((entry) => entry.pcnId === pcnId);
-    if (!paymentEntry || paymentEntry.paymentStatus !== "PAYMENT_REQUIRED" || paymentEntry.paymentAmountPence !== 6500) throw new Error("Rejected payment case was not preserved in the Friday report snapshot");
+    if (!paymentEntry || paymentEntry.paymentStatus !== "PAYMENT_REQUIRED" || paymentEntry.paymentAmountPence !== 7000) throw new Error("Rejection notice amount was not preserved in the Friday report snapshot");
 
     await prisma.subsequentNotice.create({ data: { pcnId, noticeType: "NOTICE_TO_OWNER", receivedDate: new Date("2046-06-06T00:00:00.000Z"), hasNewInformation: false } });
     await prisma.subsequentNotice.create({ data: { pcnId, noticeType: "NOTICE_TO_OWNER", receivedDate: new Date("2046-06-07T00:00:00.000Z"), hasNewInformation: true, evidenceDetails: "Fictional new information for review." } });

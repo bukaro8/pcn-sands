@@ -11,6 +11,7 @@ import { createOrGetReport } from "@/lib/reporting";
 import { sendReportEmail } from "@/lib/jobs";
 import { completeChecklistTask } from "@/lib/checklist";
 import { requireAdmin } from "@/lib/require-admin";
+import { calculateInclusiveDeadline } from "@/lib/chatgpt-import";
 
 function value(formData: FormData, name: string): string {
   return String(formData.get(name) ?? "").trim();
@@ -40,6 +41,13 @@ function optionalMoneyInPence(formData: FormData, name: string): number | null {
   return Math.round(Number(raw) * 100);
 }
 
+function optionalPositiveInteger(formData: FormData, name: string): number | null {
+  const raw = value(formData, name);
+  if (!raw) return null;
+  if (!/^\d{1,3}$/.test(raw) || Number(raw) < 1 || Number(raw) > 366) throw new Error("Discount period must be between 1 and 366 days");
+  return Number(raw);
+}
+
 function enumValue<T extends readonly string[]>(formData: FormData, name: string, options: T): T[number] {
   const selected = value(formData, name);
   if (!options.includes(selected)) throw new Error(`${name} is invalid`);
@@ -63,9 +71,11 @@ function actionError(path: string, error: unknown): never {
     "A rejected challenge must retain a payment status", "Notice does not match this PCN and vehicle",
     "Additional evidence details are too long",
     "Contravention time must use HH:mm", "Notes are too long", "Delivery time must use HH:mm",
+    "Discount period must be between 1 and 366 days",
+    "Discount deadline does not match the stated inclusive period",
   ];
   let message: string;
-  if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
+  if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|discountDeadline|fullPaymentDeadline|discountPeriodStartDate|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
     message = error.message;
   } else {
     logDatabaseError("PCN action", error);
@@ -164,6 +174,15 @@ function parsePcn(formData: FormData) {
   if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Contravention time must use HH:mm");
   const notes = [description && `Contravention description: ${description}`, time && `Contravention time: ${time}`, optionalValue(formData, "notes")].filter(Boolean).join("\n") || null;
   if ((notes?.length ?? 0) > 4000) throw new Error("Notes are too long");
+  const discountPeriodDays = optionalPositiveInteger(formData, "discountPeriodDays");
+  const discountPeriodStartDate = optionalDate(formData, "discountPeriodStartDate");
+  const statedDiscountDeadline = optionalDate(formData, "discountDeadline");
+  const calculatedDiscountDeadline = discountPeriodDays && discountPeriodStartDate
+    ? calculateInclusiveDeadline(discountPeriodStartDate.toISOString().slice(0, 10), discountPeriodDays)
+    : null;
+  if (statedDiscountDeadline && calculatedDiscountDeadline && statedDiscountDeadline.toISOString().slice(0, 10) !== calculatedDiscountDeadline) {
+    throw new Error("Discount deadline does not match the stated inclusive period");
+  }
 
   return {
     reference,
@@ -177,6 +196,12 @@ function parsePcn(formData: FormData) {
     paymentStatus: enumValue(formData, "paymentStatus", paymentStatuses),
     paymentDeadline: optionalDate(formData, "paymentDeadline"),
     paymentAmountPence: optionalMoneyInPence(formData, "paymentAmount"),
+    discountedAmountPence: optionalMoneyInPence(formData, "discountedAmount"),
+    fullPenaltyAmountPence: optionalMoneyInPence(formData, "fullPenaltyAmount"),
+    discountDeadline: statedDiscountDeadline ?? (calculatedDiscountDeadline ? new Date(`${calculatedDiscountDeadline}T00:00:00.000Z`) : null),
+    fullPaymentDeadline: optionalDate(formData, "fullPaymentDeadline"),
+    discountPeriodDays,
+    discountPeriodStartDate,
     paymentReference: optionalValue(formData, "paymentReference"),
     notes,
   };

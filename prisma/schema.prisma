@@ -122,31 +122,37 @@ model Issuer {
 }
 
 model Pcn {
-  id                    String          @id @default(cuid())
-  reference             String          @unique
-  vehicleId             String
-  issuerId              String
-  contraventionCode     String?
-  contraventionLocation String
-  contraventionDate     DateTime        @db.Date
-  issueDate             DateTime        @db.Date
-  noticeType            NoticeType
-  challengeStatus       ChallengeStatus @default(AWAITING_CHALLENGE)
-  paymentStatus         PaymentStatus   @default(NOT_REQUIRED)
-  paymentDeadline       DateTime?       @db.Date
-  paymentAmountPence    Int?
-  paymentReference      String?
-  notes                 String?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  vehicle               Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
-  issuer                Issuer          @relation(fields: [issuerId], references: [id], onDelete: Restrict)
-  challenges            Challenge[]
-  reportEntries         ReportEntry[]
-  reminders             Reminder[]
-  checklistTasks        ChecklistTask[]
-  subsequentNotices     SubsequentNotice[]
-  invoiceEvidence       InvoiceEvidence?
+  id                      String             @id @default(cuid())
+  reference               String             @unique
+  vehicleId               String
+  issuerId                String
+  contraventionCode       String?
+  contraventionLocation   String
+  contraventionDate       DateTime           @db.Date
+  issueDate               DateTime           @db.Date
+  noticeType              NoticeType
+  challengeStatus         ChallengeStatus    @default(AWAITING_CHALLENGE)
+  paymentStatus           PaymentStatus      @default(NOT_REQUIRED)
+  paymentDeadline         DateTime?          @db.Date
+  paymentAmountPence      Int?
+  discountedAmountPence   Int?
+  fullPenaltyAmountPence  Int?
+  discountDeadline        DateTime?          @db.Date
+  fullPaymentDeadline     DateTime?          @db.Date
+  discountPeriodDays      Int?
+  discountPeriodStartDate DateTime?          @db.Date
+  paymentReference        String?
+  notes                   String?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  vehicle                 Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  issuer                  Issuer             @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  challenges              Challenge[]
+  reportEntries           ReportEntry[]
+  reminders               Reminder[]
+  checklistTasks          ChecklistTask[]
+  subsequentNotices       SubsequentNotice[]
+  invoiceEvidence         InvoiceEvidence?
 
   @@index([vehicleId])
   @@index([issuerId])
@@ -170,9 +176,9 @@ model Challenge {
   reminders            Reminder[]
   checklistTasks       ChecklistTask[]
 
+  @@unique([pcnId, stage, submissionDate])
   @@index([pcnId, stage])
   @@index([outcome, nextStatusCheckDate])
-  @@unique([pcnId, stage, submissionDate])
 }
 
 model ReportHistory {
@@ -188,8 +194,8 @@ model ReportHistory {
   emailError          String?
   entries             ReportEntry[]
 
-  @@index([type, periodStart, periodEnd])
   @@unique([type, periodStart, periodEnd])
+  @@index([type, periodStart, periodEnd])
 }
 
 model ReportEntry {
@@ -209,20 +215,20 @@ model ReportEntry {
 }
 
 model Reminder {
-  id          String         @id @default(cuid())
-  pcnId       String
-  challengeId String?
-  type        ReminderType
-  eventKey    String         @unique
-  dueAt       DateTime
-  status      ReminderStatus @default(PENDING)
-  notifiedAt  DateTime?
-  completedAt DateTime?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  pcn         Pcn            @relation(fields: [pcnId], references: [id], onDelete: Cascade)
-  challenge   Challenge?     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  delivery    ReminderDelivery?
+  id             String            @id @default(cuid())
+  pcnId          String
+  challengeId    String?
+  type           ReminderType
+  eventKey       String            @unique
+  dueAt          DateTime
+  status         ReminderStatus    @default(PENDING)
+  notifiedAt     DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  pcn            Pcn               @relation(fields: [pcnId], references: [id], onDelete: Cascade)
+  challenge      Challenge?        @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  delivery       ReminderDelivery?
   checklistTasks ChecklistTask[]
 
   @@index([status, dueAt])
@@ -265,8 +271,8 @@ model SubsequentNotice {
 }
 
 model InvoiceEvidence {
-  id              String   @id @default(cuid())
-  pcnId           String   @unique
+  id              String    @id @default(cuid())
+  pcnId           String    @unique
   reference       String?
   invoiceDate     DateTime? @db.Date
   deliveryDate    DateTime? @db.Date
@@ -277,9 +283,9 @@ model InvoiceEvidence {
   description     String?
   deliveryTime    String?
   otherFacts      String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  pcn             Pcn      @relation(fields: [pcnId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  pcn             Pcn       @relation(fields: [pcnId], references: [id], onDelete: Cascade)
 }
 
 model ReminderDelivery {
@@ -296,16 +302,16 @@ model ReminderDelivery {
 }
 
 model JobExecution {
-  id           String    @id @default(cuid())
-  jobKey       String    @unique
-  type         JobType
-  status       JobStatus
-  attempts     Int       @default(1)
-  startedAt    DateTime  @default(now())
-  finishedAt   DateTime?
-  error        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  jobKey     String    @unique
+  type       JobType
+  status     JobStatus
+  attempts   Int       @default(1)
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([type, status])
 }

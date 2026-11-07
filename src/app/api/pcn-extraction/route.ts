@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       model: appConfig.openAiModel,
       store: false,
-      input: [{ role: "user", content: [{ type: "input_text", text: "Extract only facts visibly present in this UK PCN document. Return null for any unavailable field. Dates must be YYYY-MM-DD. Map the notice type to ORIGINAL_PCN, NOTICE_TO_OWNER, PRIVATE_PARKING_NOTICE, or OTHER. Include displayed monetary amounts as strings; do not infer amounts or deadlines." }, ...content] }],
+      input: [{ role: "user", content: [{ type: "input_text", text: "Extract only facts visibly present in this UK PCN document. Return null for unavailable or uncertain fields. Dates must be YYYY-MM-DD. Map the notice type to ORIGINAL_PCN, NOTICE_TO_OWNER, PRIVATE_PARKING_NOTICE, or OTHER. Separate the discounted amount and deadline from the full amount and deadline. Never assume a 14-day period. Set discountPeriodDays and discountPeriodStartDate only when both are explicitly and unambiguously stated; count the start date as day 1 when calculating discountDeadline. Do not infer a service date, amount, or deadline from customary rules." }, ...content] }],
       text: { format: { type: "json_schema", name: "pcn_extraction", strict: true, schema: extractionJsonSchema } },
     }),
   });
