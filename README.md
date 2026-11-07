@@ -29,7 +29,7 @@ docker compose ps
 The database listens only on `127.0.0.1:55432` because another local container already uses port 5432. Its data persists in the named `pcn_postgres_data` volume when the container stops or is recreated. Stop the database while keeping its data with:
 
 ```sh
-docker compose down
+docker compose down.
 ```
 
 To reset the local database and permanently delete its data, run:
