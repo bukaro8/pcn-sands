@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { getOrCreateVehicle } from "../src/lib/vehicles";
+import { buildPcnWriteData } from "../src/lib/pcn-write";
+import { logDatabaseError } from "../src/lib/database-errors";
 
 async function main() {
   const suffix = `verification-${Date.now()}`;
@@ -30,18 +32,39 @@ async function main() {
 
     vehicleId = firstVehicle.id;
 
-    const pcn = await prisma.pcn.create({
-      data: {
+    const writeData = buildPcnWriteData(
+      {
+        registration,
         reference: `VERIFY-${suffix}`,
-        vehicleId,
-        issuerId: issuer.id,
         contraventionLocation: "Verification Street",
         contraventionDate: new Date("2026-11-01T00:00:00.000Z"),
         issueDate: new Date("2026-11-02T00:00:00.000Z"),
-        noticeType: "NOTICE_TO_OWNER",
-        challengeStatus: "AWAITING_DECISION",
-        paymentStatus: "PAYMENT_REQUIRED",
+        noticeType: "NOTICE_TO_OWNER" as const,
+        challengeStatus: "AWAITING_DECISION" as const,
+        paymentStatus: "PAYMENT_REQUIRED" as const,
         paymentDeadline: new Date("2026-11-16T00:00:00.000Z"),
+      },
+      vehicleId,
+      issuer.id,
+    );
+    if ("registration" in writeData) throw new Error("Form-only registration leaked into the Prisma PCN payload");
+
+    const diagnosticLogs: string[] = [];
+    const originalConsoleError = console.error;
+    console.error = (message: unknown) => { diagnosticLogs.push(String(message)); };
+    try {
+      const validationError = Object.assign(new Error("sensitive Prisma detail"), { name: "PrismaClientValidationError" });
+      logDatabaseError("pcn.create", validationError);
+    } finally {
+      console.error = originalConsoleError;
+    }
+    if (diagnosticLogs.length !== 1 || !diagnosticLogs[0].includes("pcn.create") || !diagnosticLogs[0].includes("prismaCode=none") || !diagnosticLogs[0].includes("PrismaClientValidationError") || diagnosticLogs[0].includes("sensitive Prisma detail")) {
+      throw new Error("PCN database diagnostic was missing or exposed error details");
+    }
+
+    const pcn = await prisma.pcn.create({
+      data: {
+        ...writeData,
         challenges: {
           create: {
             stage: "FORMAL",

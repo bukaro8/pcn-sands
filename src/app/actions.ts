@@ -12,6 +12,7 @@ import { sendReportEmail } from "@/lib/jobs";
 import { completeChecklistTask } from "@/lib/checklist";
 import { requireAdmin } from "@/lib/require-admin";
 import { calculateInclusiveDeadline } from "@/lib/chatgpt-import";
+import { buildPcnWriteData } from "@/lib/pcn-write";
 
 function value(formData: FormData, name: string): string {
   return String(formData.get(name) ?? "").trim();
@@ -62,7 +63,7 @@ function isTransportForLondon(normalizedName: string): boolean {
   return ["transport for london", "transport for london (tfl)", "tfl"].includes(normalizedName);
 }
 
-function actionError(path: string, error: unknown): never {
+function actionError(path: string, error: unknown, operation = "pcn.action"): never {
   const safeMessages = [
     "Selected issuer no longer exists", "Select an issuer or enter a new issuer name", "Issuer name is too long",
     "Issuer challenge URL must be valid", "Reference, vehicle registration and location are required",
@@ -82,7 +83,7 @@ function actionError(path: string, error: unknown): never {
   if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|discountDeadline|fullPaymentDeadline|discountPeriodStartDate|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
     message = error.message;
   } else {
-    logDatabaseError("PCN action", error);
+    logDatabaseError(operation, error);
     message = classifyDatabaseError(error).explanation;
   }
   redirect(`${path}${path.includes("?") ? "&" : "?"}error=${encodeURIComponent(message)}`);
@@ -218,16 +219,23 @@ function parsePcn(formData: FormData) {
 export async function createPcn(formData: FormData) {
   await requireAdmin();
   let destination: string;
+  let operation = "pcn.create.parse";
   try {
     const input = parsePcn(formData);
+    operation = "pcn.create.check-duplicate";
     const existing = await prisma.pcn.findUnique({ where: { reference: input.reference }, select: { id: true } });
     if (existing) throw new Error("A PCN with this reference already exists");
-    const [vehicle, issuerId] = await Promise.all([getOrCreateVehicle(input.registration), resolveIssuer(formData)]);
-    const pcn = await prisma.pcn.create({ data: { ...input, vehicleId: vehicle.id, issuerId } });
+    operation = "pcn.create.resolve-vehicle";
+    const vehicle = await getOrCreateVehicle(input.registration);
+    operation = "pcn.create.resolve-issuer";
+    const issuerId = await resolveIssuer(formData);
+    operation = "pcn.create";
+    const pcn = await prisma.pcn.create({ data: buildPcnWriteData(input, vehicle.id, issuerId) });
+    operation = "pcn.create.sync-payment-reminder";
     await syncPaymentReminder(pcn.id, input.paymentDeadline, input.paymentStatus);
     destination = `/pcns/${pcn.id}`;
   } catch (error) {
-    actionError("/pcns/new", error);
+    actionError("/pcns/new", error, operation);
   }
   revalidatePath("/");
   revalidatePath("/pcns");
@@ -246,16 +254,23 @@ export async function updatePcn(formData: FormData) {
   await requireAdmin();
   const pcnId = value(formData, "pcnId");
   const detailPath = `/pcns/${pcnId}`;
+  let operation = "pcn.update.validate";
   try {
     if (!pcnId) throw new Error("PCN is required");
     const input = parsePcn(formData);
+    operation = "pcn.update.check-duplicate";
     const existing = await prisma.pcn.findUnique({ where: { reference: input.reference }, select: { id: true } });
     if (existing && existing.id !== pcnId) throw new Error("A PCN with this reference already exists");
-    const [vehicle, issuerId] = await Promise.all([getOrCreateVehicle(input.registration), resolveIssuer(formData)]);
-    await prisma.pcn.update({ where: { id: pcnId }, data: { ...input, vehicleId: vehicle.id, issuerId } });
+    operation = "pcn.update.resolve-vehicle";
+    const vehicle = await getOrCreateVehicle(input.registration);
+    operation = "pcn.update.resolve-issuer";
+    const issuerId = await resolveIssuer(formData);
+    operation = "pcn.update";
+    await prisma.pcn.update({ where: { id: pcnId }, data: buildPcnWriteData(input, vehicle.id, issuerId) });
+    operation = "pcn.update.sync-payment-reminder";
     await syncPaymentReminder(pcnId, input.paymentDeadline, input.paymentStatus);
   } catch (error) {
-    actionError(detailPath, error);
+    actionError(detailPath, error, operation);
   }
   revalidatePath("/");
   revalidatePath("/pcns");

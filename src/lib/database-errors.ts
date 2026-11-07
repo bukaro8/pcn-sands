@@ -15,6 +15,15 @@ function errorCode(error: unknown): string | undefined {
   return candidate.cause && candidate.cause !== error ? errorCode(candidate.cause) : undefined;
 }
 
+function prismaErrorType(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const candidate = error as { name?: unknown; cause?: unknown };
+  if (typeof candidate.name === "string" && /^PrismaClient(?:KnownRequest|UnknownRequest|Validation|Initialization|RustPanic)Error$/.test(candidate.name)) {
+    return candidate.name;
+  }
+  return candidate.cause && candidate.cause !== error ? prismaErrorType(candidate.cause) : undefined;
+}
+
 export function classifyDatabaseError(error: unknown) {
   const code = errorCode(error);
   let kind: DatabaseFailureKind = "internal";
@@ -26,8 +35,11 @@ export function classifyDatabaseError(error: unknown) {
   return { kind, code, ...failures[kind] };
 }
 
-/** Logs only a known classification/code, never the error message or query. */
+/** Logs only a known classification, Prisma type/code and operation; never the message or query. */
 export function logDatabaseError(operation: string, error: unknown) {
   const result = classifyDatabaseError(error);
-  console.error(`${operation} failed: database ${result.kind}${result.code ? ` (${result.code})` : ""}.`);
+  const type = prismaErrorType(error);
+  console.error(
+    `${operation} failed: database ${result.kind}; prismaCode=${result.code ?? "none"}; prismaType=${type ?? "unknown"}.`,
+  );
 }
