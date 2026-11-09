@@ -54,6 +54,12 @@ npm run dev
 
 The application is available at `http://localhost:3000`. The health endpoint is `GET /api/health`.
 
+### Android installation
+
+The production website is installable from Android Chrome as **Sands PCN Management**. The manifest, 192px/512px icons and network-only service worker are served publicly so Chrome can verify installability before sign-in; application pages and APIs remain authenticated. The service worker does not use Cache Storage, provide an offline fallback or persist authenticated responses, PCN data or API results.
+
+After deploying over HTTPS, open the site in Android Chrome, sign in, open Chrome's menu and choose **Install app**. Confirm the Sands PCN icon and name, then launch it from the home screen. It should open in a standalone window and require the network for login and all data. If Chrome does not offer installation immediately, reload once so the service worker controls the page, then check **Install app** again. Chrome DevTools → Application can be used to confirm `/manifest.webmanifest`, the three icon declarations and `/sw.js`; Cache Storage should remain empty.
+
 ### Administrator authentication
 
 Every dashboard, PCN, report, upload and AI endpoint requires the single administrator session. There is no registration flow or public account creation. Create a stable session secret:

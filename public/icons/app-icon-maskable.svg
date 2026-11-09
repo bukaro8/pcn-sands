@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sands PCN Management">
+  <rect width="512" height="512" fill="#173d32"/>
+  <path fill="#91a990" d="M368 96c25 8 45 28 53 52-33 0-60 27-60 60-25-8-44-28-53-52 33 0 60-27 60-60Z"/>
+  <rect x="151" y="128" width="210" height="256" rx="39" fill="#fffdf7"/>
+  <path fill="#dfe9df" d="M178 178h156v28H178zm0 54h107v23H178zm0 46h133v23H178z"/>
+  <circle cx="311" cy="337" r="42" fill="#356957"/>
+  <path fill="none" stroke="#fffdf7" stroke-linecap="round" stroke-linejoin="round" stroke-width="14" d="m291 337 14 14 28-31"/>
+</svg>

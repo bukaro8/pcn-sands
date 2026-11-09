@@ -19,6 +19,7 @@
     "test:challenge-generation": "tsx scripts/test-challenge-generation.ts",
     "test:appeal-portal": "node --import tsx scripts/test-appeal-portal.ts",
     "test:pcn-detail-sections": "node --import tsx scripts/test-pcn-detail-sections.ts",
+    "test:pwa": "node scripts/test-pwa.mjs",
     "db:verify-challenge-workflow": "tsx scripts/verify-challenge-workflow.ts",
     "db:verify-report-workflow": "tsx scripts/verify-report-workflow.ts",
     "reports:preview": "tsx scripts/preview-executive-reports.ts",
