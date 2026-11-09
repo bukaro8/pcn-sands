@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { appConfig } from "@/lib/config";
-import { challengeGenerationSchema, extractResponseOutputText, parseChallengeGeneration } from "@/lib/challenge-generation";
+import { ChallengeResponseError, challengeGenerationSchema, parseOpenAiChallengeResponse } from "@/lib/challenge-generation";
 import { temporaryEvidenceTypes, validateTemporaryEvidence } from "@/lib/temporary-upload";
 import { isAdmin } from "@/lib/require-admin";
 import { classifyDatabaseError, logDatabaseError } from "@/lib/database-errors";
 import { analyzeDeliveryEvidence, extractContraventionTime } from "@/lib/delivery-evidence";
-import { buildChallengeWritingPrompt, challengeQualityIssues, type ChallengeWritingInput } from "@/lib/challenge-writing";
+import { buildChallengeWritingPrompt, challengeQualityReport, type ChallengeWritingInput } from "@/lib/challenge-writing";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ async function handlePost(request: Request) {
   try {
     if (!await isAdmin()) return NextResponse.json({ error: "Your session has expired. Sign in again, then retry." }, { status: 401 });
   } catch {
-    console.error("Challenge generation failed: operation=authenticate; errorType=authentication-service.");
+    console.error("Challenge generation failed: stage=authentication; code=authentication-service-unavailable.");
     return NextResponse.json({ error: "Authentication could not be verified. Refresh the page and sign in again." }, { status: 503 });
   }
 
@@ -30,6 +30,7 @@ async function handlePost(request: Request) {
   try {
     formData = await request.formData();
   } catch {
+    console.error("Challenge generation failed: stage=request-read; code=invalid-form-data.");
     return NextResponse.json({ error: "The challenge request could not be read. Refresh the page and retry." }, { status: 400 });
   }
   const pcnId = field(formData, "pcnId");
@@ -93,30 +94,35 @@ async function handlePost(request: Request) {
       body: JSON.stringify({ model: appConfig.openAiModel, store: false, input: [{ role: "user", content }], text: { format: { type: "json_schema", name: "pcn_challenge", strict: true, schema: challengeGenerationSchema }, verbosity: "low" } }),
     });
   } catch {
-    console.error("Challenge generation failed: operation=openai.request; errorType=network.");
+    console.error("Challenge generation failed: stage=openai-request; code=network-error.");
     return NextResponse.json({ error: "The AI service could not be reached. You can write or paste a challenge manually." }, { status: 502 });
   }
   if (!response.ok) {
-    console.error(`Challenge generation failed: operation=openai.request; upstreamStatus=${response.status}.`);
+    console.error(`Challenge generation failed: stage=openai-response; code=upstream-http-error; upstreamStatus=${response.status}.`);
     return NextResponse.json({ error: "The AI service could not generate a challenge. You can write one manually." }, { status: 502 });
   }
   let payload: unknown;
   try { payload = await response.json(); }
   catch {
-    console.error("Challenge generation failed: operation=openai.parse-response; errorType=non-json.");
+    console.error("Challenge generation failed: stage=openai-response; code=non-json-response.");
     return NextResponse.json({ error: "The AI service returned an invalid response. You can write or paste a challenge manually." }, { status: 502 });
   }
+  let generation;
   try {
-    const generation = parseChallengeGeneration(JSON.parse(extractResponseOutputText(payload) ?? ""));
-    const qualityIssues = challengeQualityIssues(generation, writingInput);
-    if (qualityIssues.length) {
-      console.error(`Challenge generation failed: operation=quality-check; issueCount=${qualityIssues.length}.`);
-      return NextResponse.json({ error: "The generated draft did not pass the factual quality checks. Review the saved evidence or write the challenge manually." }, { status: 502 });
-    }
-    return NextResponse.json({ generation });
-  } catch {
+    generation = parseOpenAiChallengeResponse(payload);
+  } catch (error) {
+    const code = error instanceof ChallengeResponseError ? error.code : "unknown";
+    console.error(`Challenge generation failed: stage=structured-output; code=${code}.`);
     return NextResponse.json({ error: "The AI response was incomplete. You can write a challenge manually." }, { status: 502 });
   }
+  const quality = challengeQualityReport(generation, writingInput);
+  if (quality.blockingIssues.length) {
+    const issueCodes = quality.blockingIssues.map((issue) => issue.code).join(",");
+    console.error(`Challenge generation failed: stage=quality-check; codes=${issueCodes}.`);
+    return NextResponse.json({ error: "The generated draft did not pass the factual quality checks. Review the saved evidence or write the challenge manually." }, { status: 502 });
+  }
+  if (quality.advisoryCodes.length) console.info(`Challenge generation accepted: stage=quality-check; advisoryCodes=${quality.advisoryCodes.join(",")}.`);
+  return NextResponse.json({ generation });
 }
 
 export async function POST(request: Request) {
@@ -124,7 +130,7 @@ export async function POST(request: Request) {
     return await handlePost(request);
   } catch (error) {
     const errorType = error instanceof SyntaxError ? "syntax" : error instanceof TypeError ? "type" : "unknown";
-    console.error(`Challenge generation failed: operation=route; errorType=${errorType}.`);
+    console.error(`Challenge generation failed: stage=route; code=unexpected-${errorType}.`);
     return NextResponse.json({ error: "Challenge generation is temporarily unavailable. You can write or paste a challenge manually." }, { status: 500 });
   }
 }

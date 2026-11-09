@@ -1,7 +1,7 @@
-import { extractResponseOutputText, issuerChallengeDescription, parseChallengeGeneration, readChallengeGenerationResponse } from "../src/lib/challenge-generation";
+import { ChallengeResponseError, extractResponseOutputText, issuerChallengeDescription, parseChallengeGeneration, parseOpenAiChallengeResponse, readChallengeGenerationResponse } from "../src/lib/challenge-generation";
 import { validateTemporaryEvidence } from "../src/lib/temporary-upload";
 import { analyzeDeliveryEvidence, extractContraventionTime } from "../src/lib/delivery-evidence";
-import { buildChallengeWritingPrompt, buildChatGptChallengePrompt, challengeQualityIssues, type ChallengeWritingInput } from "../src/lib/challenge-writing";
+import { buildChallengeWritingPrompt, buildChatGptChallengePrompt, challengeQualityIssues, challengeQualityReport, type ChallengeWritingInput } from "../src/lib/challenge-writing";
 
 async function main() {
 const mockGeneration = {
@@ -21,6 +21,18 @@ if (issuerChallengeDescription("COUNCIL") !== "local council" || issuerChallenge
 
 const rawResponsesPayload = { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(mockGeneration) }] }] };
 if (extractResponseOutputText(rawResponsesPayload) !== JSON.stringify(mockGeneration)) throw new Error("Raw Responses API output parsing failed");
+if (parseOpenAiChallengeResponse(rawResponsesPayload).evidence.reference !== "INV-100") throw new Error("Structured Responses API parsing failed");
+for (const [label, payload, expectedCode] of [
+  ["incomplete response", { status: "incomplete", output: [] }, "response_incomplete"],
+  ["refusal", { status: "completed", output: [{ content: [{ type: "refusal", refusal: "Unavailable" }] }] }, "response_refused"],
+  ["missing output", { status: "completed", output: [] }, "output_missing"],
+  ["malformed JSON", { output_text: "{not-json" }, "output_json_invalid"],
+  ["invalid structured output", { output_text: JSON.stringify({ challengeText: "", evidence: {}, missingInformation: [] }) }, "structured_output_invalid"],
+] as const) {
+  let observedCode: string | null = null;
+  try { parseOpenAiChallengeResponse(payload); } catch (error) { observedCode = error instanceof ChallengeResponseError ? error.code : null; }
+  if (observedCode !== expectedCode) throw new Error(`${label} was not classified safely`);
+}
 const apiResult = await readChallengeGenerationResponse(new Response(JSON.stringify({ generation: mockGeneration }), { status: 200, headers: { "Content-Type": "application/json" } }));
 if (apiResult.evidence.reference !== "INV-100") throw new Error("Challenge API response parsing failed");
 let htmlFailureHandled = false;
@@ -109,6 +121,20 @@ Please consider the enclosed delivery evidence and cancel the PCN.
 Yours faithfully`;
 const professionalGeneration = { ...mockGeneration, challengeText: professionalLetter, evidence: { deliveryAddress: writingInput.invoice!.deliveryAddress, deliveryDate: writingInput.invoice!.deliveryDate, companyOrRecipient: writingInput.invoice!.recipient, reference: writingInput.invoice!.reference }, missingInformation: nearbyWindow.missingFacts };
 if (challengeQualityIssues(professionalGeneration, writingInput).length) throw new Error(`Professional delivery challenge failed quality checks: ${challengeQualityIssues(professionalGeneration, writingInput).join("; ")}`);
+const conciseEvidenceFirstLetter = `Dear Sir or Madam,
+
+I challenge PCN TF12345678 for vehicle AB12 CDE. Invoice INV-100 records the delivery connected with the circumstances at the time of the notice. I respectfully ask that you consider this supporting evidence and cancel the PCN.
+
+Yours faithfully`;
+const conciseQuality = challengeQualityReport({ ...professionalGeneration, challengeText: conciseEvidenceFirstLetter }, writingInput);
+if (conciseQuality.blockingIssues.length) throw new Error(`A valid evidence-first draft was rejected for optional omissions: ${conciseQuality.blockingIssues.map((issue) => issue.code).join(",")}`);
+if (!conciseQuality.advisoryCodes.includes("delivery_address_omitted") || !conciseQuality.advisoryCodes.includes("delivery_window_end_omitted")) throw new Error("Optional evidence omissions were not retained as non-blocking diagnostics");
+const ungroundedLetter = `Dear Sir or Madam,
+
+I challenge PCN TF12345678 for vehicle AB12 CDE. Please review the circumstances recorded for this notice and exercise your discretion to cancel it. I would be grateful for your careful consideration.
+
+Yours faithfully`;
+if (!challengeQualityReport({ ...professionalGeneration, challengeText: ungroundedLetter }, writingInput).blockingIssues.some((issue) => issue.code === "invoice_evidence_not_used")) throw new Error("A delivery-invoice challenge with no reviewed evidence grounding passed quality checks");
 const apiPrompt = buildChallengeWritingPrompt(writingInput);
 if (!apiPrompt.includes("experienced UK parking appeals specialist") || !apiPrompt.includes("primary evidential basis") || !apiPrompt.includes("TfL red route") || !apiPrompt.includes("scheduled delivery window as a confirmed delivery time") || !apiPrompt.includes("TF12345678") || apiPrompt.includes("Administrator-supplied additional circumstances")) throw new Error("Professional API writing brief is incomplete");
 const fallback = buildChatGptChallengePrompt({ stage: writingInput.stage, reason: writingInput.reason, additionalCircumstances: writingInput.additionalCircumstances, facts: { ...writingInput.pcn, invoice: writingInput.invoice, evidenceAnalysis: writingInput.evidenceAnalysis } });

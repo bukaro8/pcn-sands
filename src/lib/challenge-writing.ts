@@ -128,32 +128,86 @@ function includesDate(text: string, isoDate: string) {
   return [isoDate, `${Number(day)} ${monthName} ${year}`, `${day} ${monthName} ${year}`].some((value) => text.toLowerCase().includes(value.toLowerCase()));
 }
 
-export function challengeQualityIssues(generation: ChallengeGeneration, input: ChallengeWritingInput): string[] {
-  const issues: string[] = [];
+export type ChallengeQualityIssueCode =
+  | "draft_too_brief"
+  | "draft_too_long"
+  | "pcn_reference_missing"
+  | "vehicle_registration_missing"
+  | "internal_label_present"
+  | "private_weakness_exposed"
+  | "driver_testimony_invented"
+  | "unsupported_legal_claim"
+  | "proximity_overstated"
+  | "postcode_warning_contradicted"
+  | "time_comparison_contradicted"
+  | "scheduled_window_overstated"
+  | "invoice_evidence_not_used"
+  | "invoice_reference_mismatch"
+  | "delivery_address_mismatch"
+  | "delivery_date_mismatch";
+
+export type ChallengeQualityIssue = {
+  code: ChallengeQualityIssueCode;
+  message: string;
+};
+
+export type ChallengeQualityAdvisoryCode =
+  | "invoice_reference_omitted"
+  | "delivery_address_omitted"
+  | "recipient_omitted"
+  | "evidence_date_omitted"
+  | "delivery_window_start_omitted"
+  | "delivery_window_end_omitted";
+
+export function challengeQualityReport(generation: ChallengeGeneration, input: ChallengeWritingInput): {
+  blockingIssues: ChallengeQualityIssue[];
+  advisoryCodes: ChallengeQualityAdvisoryCode[];
+} {
+  const issues: ChallengeQualityIssue[] = [];
+  const advisories: ChallengeQualityAdvisoryCode[] = [];
+  const add = (code: ChallengeQualityIssueCode, message: string) => issues.push({ code, message });
   const text = generation.challengeText;
   const lower = text.toLowerCase();
-  if (text.length < 180) issues.push("The draft is too brief to explain the case professionally.");
-  if (text.length > 6000) issues.push("The draft is unnecessarily long.");
-  if (!lower.includes(input.pcn.reference.toLowerCase())) issues.push("The saved PCN reference is missing.");
-  if (!compact(text).includes(compact(input.pcn.vehicleRegistration))) issues.push("The saved vehicle registration is missing.");
-  if (/^(?:grounds?|evidence review|analysis|missing information)\s*:/im.test(text) || /\b(?:LOADING_UNLOADING|PARKING_RESTRICTION_SIGNAGE|OTHER_CIRCUMSTANCES)\b/.test(text)) issues.push("The draft contains an internal or mechanical label.");
-  if (/insufficient to (?:demonstrate|prove)|does not prove|cannot establish|evidence is weak|lack of evidence/i.test(text)) issues.push("The draft exposes private evidence weaknesses.");
-  if (/\bthe driver (?:confirms?|states?|advises?|reports?|says|explains?)\b/i.test(text)) issues.push("The draft relies on driver testimony.");
+  if (text.length < 180) add("draft_too_brief", "The draft is too brief to explain the case professionally.");
+  if (text.length > 6000) add("draft_too_long", "The draft is unnecessarily long.");
+  if (!lower.includes(input.pcn.reference.toLowerCase())) add("pcn_reference_missing", "The saved PCN reference is missing.");
+  if (!compact(text).includes(compact(input.pcn.vehicleRegistration))) add("vehicle_registration_missing", "The saved vehicle registration is missing.");
+  if (/^(?:grounds?|evidence review|analysis|missing information)\s*:/im.test(text) || /\b(?:LOADING_UNLOADING|PARKING_RESTRICTION_SIGNAGE|OTHER_CIRCUMSTANCES)\b/.test(text)) add("internal_label_present", "The draft contains an internal or mechanical label.");
+  if (/insufficient to (?:demonstrate|prove)|does not prove|cannot establish|evidence is weak|lack of evidence/i.test(text)) add("private_weakness_exposed", "The draft exposes private evidence weaknesses.");
+  if (/\bthe driver (?:confirms?|states?|advises?|reports?|says|explains?)\b/i.test(text)) add("driver_testimony_invented", "The draft relies on driver testimony.");
   const legalClaim = text.match(/\b(?:Traffic Management Act|Road Traffic Regulation Act|Protection of Freedoms Act|statutory exemption|regulation \d+)/i)?.[0];
-  if (legalClaim && !JSON.stringify(input).toLowerCase().includes(legalClaim.toLowerCase())) issues.push("The draft introduces an unsupported legal claim.");
-  if (input.evidenceAnalysis.location.status !== "VERIFIED_NEARBY" && /\b(?:nearby|adjacent|a short distance|in close proximity|immediate vicinity)\b/i.test(text) && !/\b(?:nearby|adjacent|a short distance|in close proximity|immediate vicinity)\b/i.test(input.additionalCircumstances)) issues.push("The draft overstates geographical proximity.");
-  if (input.evidenceAnalysis.location.status === "UNVERIFIED" && /\b(?:same|share|both)\b.{0,60}\bpostcode(?: district)?\b/i.test(text)) issues.push("The draft contradicts the private postcode warning.");
-  if (input.evidenceAnalysis.time.status === "OUTSIDE_STATED_WINDOW" && /\b(?:within|during|consistent with)\b.{0,50}\b(?:window|delivery time)\b/i.test(text)) issues.push("The draft contradicts the recorded time comparison.");
-  if (input.invoice?.deliveryTimeKind === "SCHEDULED_WINDOW" && /\b(?:delivery (?:occurred|took place|was completed)|confirmed delivery)\b/i.test(text) && !/deliver(?:y|ed).{0,80}(?:confirm|occurred|completed)/i.test(input.additionalCircumstances)) issues.push("The draft treats a scheduled window as confirmed delivery.");
-  if (input.evidenceOption === "DELIVERY_INVOICE" && input.invoice?.reference && !compact(text).includes(compact(input.invoice.reference))) issues.push("The reviewed invoice reference is missing.");
-  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryAddress && !compact(text).includes(compact(input.invoice.deliveryAddress))) issues.push("The reviewed delivery address is missing.");
-  if (input.reason === "LOADING_UNLOADING" && input.invoice?.recipient && !compact(text).includes(compact(input.invoice.recipient))) issues.push("The reviewed customer or recipient is missing.");
+  if (legalClaim && !JSON.stringify(input).toLowerCase().includes(legalClaim.toLowerCase())) add("unsupported_legal_claim", "The draft introduces an unsupported legal claim.");
+  if (input.evidenceAnalysis.location.status !== "VERIFIED_NEARBY" && /\b(?:nearby|adjacent|a short distance|in close proximity|immediate vicinity)\b/i.test(text) && !/\b(?:nearby|adjacent|a short distance|in close proximity|immediate vicinity)\b/i.test(input.additionalCircumstances)) add("proximity_overstated", "The draft overstates geographical proximity.");
+  if (input.evidenceAnalysis.location.status === "UNVERIFIED" && /\b(?:same|share|both)\b.{0,60}\bpostcode(?: district)?\b/i.test(text)) add("postcode_warning_contradicted", "The draft contradicts the private postcode warning.");
+  if (input.evidenceAnalysis.time.status === "OUTSIDE_STATED_WINDOW" && /\b(?:within|during|consistent with)\b.{0,50}\b(?:window|delivery time)\b/i.test(text)) add("time_comparison_contradicted", "The draft contradicts the recorded time comparison.");
+  if (input.invoice?.deliveryTimeKind === "SCHEDULED_WINDOW" && /\b(?:delivery (?:occurred|took place|was completed)|confirmed delivery)\b/i.test(text) && !/deliver(?:y|ed).{0,80}(?:confirm|occurred|completed)/i.test(input.additionalCircumstances)) add("scheduled_window_overstated", "The draft treats a scheduled window as confirmed delivery.");
   const invoiceEvidenceDate = input.invoice?.deliveryDate ?? input.invoice?.invoiceDate;
-  if (input.reason === "LOADING_UNLOADING" && invoiceEvidenceDate && !includesDate(text, invoiceEvidenceDate)) issues.push("The relevant reviewed invoice or delivery date is missing.");
-  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryTime && !text.includes(input.invoice.deliveryTime)) issues.push("The reviewed delivery time or window start is missing.");
-  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryTimeEnd && !text.includes(input.invoice.deliveryTimeEnd)) issues.push("The reviewed delivery window end is missing.");
-  if (generation.evidence.reference && input.invoice?.reference && normalized(generation.evidence.reference) !== normalized(input.invoice.reference)) issues.push("The generated invoice reference does not match the reviewed evidence.");
-  if (generation.evidence.deliveryAddress && input.invoice?.deliveryAddress && normalized(generation.evidence.deliveryAddress) !== normalized(input.invoice.deliveryAddress)) issues.push("The generated delivery address does not match the reviewed evidence.");
-  if (generation.evidence.deliveryDate && input.invoice?.deliveryDate && generation.evidence.deliveryDate !== input.invoice.deliveryDate) issues.push("The generated delivery date does not match the reviewed evidence.");
-  return [...new Set(issues)];
+  const evidenceMentions = [
+    input.invoice?.reference && compact(text).includes(compact(input.invoice.reference)),
+    input.invoice?.deliveryAddress && compact(text).includes(compact(input.invoice.deliveryAddress)),
+    input.invoice?.recipient && compact(text).includes(compact(input.invoice.recipient)),
+    invoiceEvidenceDate && includesDate(text, invoiceEvidenceDate),
+    input.invoice?.deliveryTime && text.includes(input.invoice.deliveryTime),
+    input.invoice?.deliveryTimeEnd && text.includes(input.invoice.deliveryTimeEnd),
+  ].filter((value): value is boolean => typeof value === "boolean");
+  if (input.reason === "LOADING_UNLOADING" && input.evidenceOption === "DELIVERY_INVOICE" && input.invoice && evidenceMentions.length > 0 && !evidenceMentions.some(Boolean)) {
+    add("invoice_evidence_not_used", "The draft does not use any reviewed invoice fact.");
+  }
+  if (input.evidenceOption === "DELIVERY_INVOICE" && input.invoice?.reference && !compact(text).includes(compact(input.invoice.reference))) advisories.push("invoice_reference_omitted");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryAddress && !compact(text).includes(compact(input.invoice.deliveryAddress))) advisories.push("delivery_address_omitted");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.recipient && !compact(text).includes(compact(input.invoice.recipient))) advisories.push("recipient_omitted");
+  if (input.reason === "LOADING_UNLOADING" && invoiceEvidenceDate && !includesDate(text, invoiceEvidenceDate)) advisories.push("evidence_date_omitted");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryTime && !text.includes(input.invoice.deliveryTime)) advisories.push("delivery_window_start_omitted");
+  if (input.reason === "LOADING_UNLOADING" && input.invoice?.deliveryTimeEnd && !text.includes(input.invoice.deliveryTimeEnd)) advisories.push("delivery_window_end_omitted");
+  if (generation.evidence.reference && input.invoice?.reference && normalized(generation.evidence.reference) !== normalized(input.invoice.reference)) add("invoice_reference_mismatch", "The generated invoice reference does not match the reviewed evidence.");
+  if (generation.evidence.deliveryAddress && input.invoice?.deliveryAddress && normalized(generation.evidence.deliveryAddress) !== normalized(input.invoice.deliveryAddress)) add("delivery_address_mismatch", "The generated delivery address does not match the reviewed evidence.");
+  if (generation.evidence.deliveryDate && input.invoice?.deliveryDate && generation.evidence.deliveryDate !== input.invoice.deliveryDate) add("delivery_date_mismatch", "The generated delivery date does not match the reviewed evidence.");
+  return {
+    blockingIssues: [...new Map(issues.map((issue) => [issue.code, issue])).values()],
+    advisoryCodes: [...new Set(advisories)],
+  };
+}
+
+export function challengeQualityIssues(generation: ChallengeGeneration, input: ChallengeWritingInput): string[] {
+  return challengeQualityReport(generation, input).blockingIssues.map((issue) => issue.message);
 }

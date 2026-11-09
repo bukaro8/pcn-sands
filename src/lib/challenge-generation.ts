@@ -58,6 +58,51 @@ export function extractResponseOutputText(value: unknown): string | null {
   return text.trim() ? text : null;
 }
 
+export type ChallengeResponseFailureCode =
+  | "response_incomplete"
+  | "response_refused"
+  | "output_missing"
+  | "output_json_invalid"
+  | "structured_output_invalid";
+
+export class ChallengeResponseError extends Error {
+  constructor(public readonly code: ChallengeResponseFailureCode) {
+    super(code);
+    this.name = "ChallengeResponseError";
+  }
+}
+
+function containsRefusal(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const source = value as Record<string, unknown>;
+  if (!Array.isArray(source.output)) return false;
+  return source.output.some((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const content = (item as Record<string, unknown>).content;
+    return Array.isArray(content) && content.some((part) => part && typeof part === "object" && !Array.isArray(part) && (part as Record<string, unknown>).type === "refusal");
+  });
+}
+
+export function parseOpenAiChallengeResponse(value: unknown): ChallengeGeneration {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ChallengeResponseError("response_incomplete");
+  const source = value as Record<string, unknown>;
+  if (source.status === "incomplete") throw new ChallengeResponseError("response_incomplete");
+  if (containsRefusal(value)) throw new ChallengeResponseError("response_refused");
+  const output = extractResponseOutputText(value);
+  if (!output) throw new ChallengeResponseError("output_missing");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new ChallengeResponseError("output_json_invalid");
+  }
+  try {
+    return parseChallengeGeneration(parsed);
+  } catch {
+    throw new ChallengeResponseError("structured_output_invalid");
+  }
+}
+
 export async function readChallengeGenerationResponse(response: Response): Promise<ChallengeGeneration> {
   if (response.redirected && response.url) {
     try {
