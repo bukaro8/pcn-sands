@@ -10,7 +10,7 @@ for (const required of [
   'purpose: "maskable"',
 ]) assert.ok(manifestSource.includes(required), `Manifest is missing ${required}`);
 
-for (const [file, size] of [["icon-192.png", 192], ["icon-512.png", 512], ["icon-maskable-512.png", 512]]) {
+for (const [file, size] of [["favicon-32.png", 32], ["icon-192.png", 192], ["icon-512.png", 512], ["icon-maskable-512.png", 512]]) {
   const image = await readFile(new URL(`../public/icons/${file}`, import.meta.url));
   assert.equal(image.subarray(1, 4).toString("ascii"), "PNG", `${file} is not a PNG`);
   assert.equal(image.readUInt32BE(16), size, `${file} has the wrong width`);
