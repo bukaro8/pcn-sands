@@ -62,7 +62,6 @@ export default async function PcnDetailPage({ params, searchParams }: { params: 
             <h1 className="mt-1 text-xl font-semibold">{pcn.reference}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            {pcn.issuer.challengeUrl && <a className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50" href={pcn.issuer.challengeUrl} rel="noreferrer" target="_blank">Open appeal portal</a>}
             <DeletePcnButton pcnId={pcn.id} />
           </div>
         </div>
@@ -83,7 +82,7 @@ export default async function PcnDetailPage({ params, searchParams }: { params: 
         <Card>
           <CardHeader><CardTitle>Generate or write a challenge</CardTitle><p className="text-sm text-slate-600">Review, edit and manually submit every challenge. A draft is never submitted automatically.</p></CardHeader>
           <CardContent>
-            {drafts.length > 0 ? drafts.map((draft) => <div className="border-b border-slate-200 pb-6 last:border-0 last:pb-0" key={draft.id}><h3 className="mb-4 text-sm font-semibold">{statusLabel(draft.stage)} draft</h3><ChallengeDraftEditor draft={draft} evidenceAnalysis={evidenceAnalysis} facts={challengeFacts} pcnId={pcn.id} /></div>) : <ChallengeDraftEditor evidenceAnalysis={evidenceAnalysis} facts={challengeFacts} pcnId={pcn.id} />}
+            {drafts.length > 0 ? drafts.map((draft) => <div className="border-b border-slate-200 pb-6 last:border-0 last:pb-0" key={draft.id}><h3 className="mb-4 text-sm font-semibold">{statusLabel(draft.stage)} draft</h3><ChallengeDraftEditor draft={draft} evidenceAnalysis={evidenceAnalysis} facts={challengeFacts} issuer={{ id: pcn.issuer.id, name: pcn.issuer.name, challengeUrl: pcn.issuer.challengeUrl }} pcnId={pcn.id} /></div>) : <ChallengeDraftEditor evidenceAnalysis={evidenceAnalysis} facts={challengeFacts} issuer={{ id: pcn.issuer.id, name: pcn.issuer.name, challengeUrl: pcn.issuer.challengeUrl }} pcnId={pcn.id} />}
           </CardContent>
         </Card>
 

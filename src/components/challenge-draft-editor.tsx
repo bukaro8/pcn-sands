@@ -2,21 +2,21 @@
 
 import { useState } from "react";
 
-import { markChallengeSubmitted, saveChallengeDraft } from "@/app/actions";
+import { saveChallengeDraft } from "@/app/actions";
 import { readChallengeGenerationResponse, type ChallengeGeneration } from "@/lib/challenge-generation";
 import { challengeStages, dateInputValue, statusLabel } from "@/lib/pcn";
 import type { DeliveryEvidenceAnalysis } from "@/lib/delivery-evidence";
 import { buildChatGptChallengePrompt } from "@/lib/challenge-writing";
+import { SubmitChallengeWorkflow } from "@/components/submit-challenge-workflow";
 
 type Draft = { id?: string; stage?: string; challengeText?: string | null; expectedResponseDate?: Date | null; nextStatusCheckDate?: Date | null };
 const inputClass = "mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-600 focus:outline-none";
 
-export function ChallengeDraftEditor({ pcnId, draft = {}, facts, evidenceAnalysis }: { pcnId: string; draft?: Draft; facts?: Record<string, unknown>; evidenceAnalysis?: DeliveryEvidenceAnalysis }) {
+export function ChallengeDraftEditor({ pcnId, draft = {}, facts, evidenceAnalysis, issuer }: { pcnId: string; draft?: Draft; facts?: Record<string, unknown>; evidenceAnalysis?: DeliveryEvidenceAnalysis; issuer: { id: string; name: string; challengeUrl: string | null } }) {
   const [text, setText] = useState(draft.challengeText ?? "");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState<ChallengeGeneration | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
   const [copied, setCopied] = useState(false);
   function fallbackPrompt(form: HTMLFormElement) { const data = new FormData(form); return buildChatGptChallengePrompt({ stage: String(data.get("stage")), reason: String(data.get("reason")), additionalCircumstances: String(data.get("additionalCircumstances") || ""), facts: facts ?? {} }); }
 
@@ -44,6 +44,6 @@ export function ChallengeDraftEditor({ pcnId, draft = {}, facts, evidenceAnalysi
     {generation && <div className="rounded-md bg-slate-100 p-3 text-sm"><p className="font-medium">Evidence review</p><p className="mt-1 text-slate-700">{[generation.evidence.deliveryAddress, generation.evidence.deliveryDate, generation.evidence.companyOrRecipient, generation.evidence.reference].filter(Boolean).join(" · ") || "No relevant evidence facts identified."}</p>{generation.missingInformation.length > 0 && <p className="mt-2 text-amber-800">Missing information: {generation.missingInformation.join("; ")}</p>}</div>}
     <label className="block text-sm font-medium">Challenge text<textarea className={inputClass} name="challengeText" onChange={(event) => setText(event.target.value)} placeholder="Write the challenge manually or generate a draft above." required rows={12} value={text} /></label>
     <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-medium">Expected response date<input className={inputClass} defaultValue={dateInputValue(draft.expectedResponseDate)} name="expectedResponseDate" type="date" /></label><label className="text-sm font-medium">Status-check date<input className={inputClass} defaultValue={dateInputValue(draft.nextStatusCheckDate)} name="nextStatusCheckDate" type="date" /></label></div>
-    <div className="flex flex-wrap gap-3"><button formAction={saveChallengeDraft} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium" type="submit">Save draft</button>{draft.id && <><button className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium" onClick={() => navigator.clipboard.writeText(text)} type="button">Copy challenge</button><label className="inline-flex items-center gap-2 text-sm font-medium">Submission date<input className="rounded-md border border-slate-300 px-2 py-2" defaultValue={today} name="submissionDate" required type="date" /></label><button formAction={markChallengeSubmitted} className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white" type="submit">Mark as submitted</button></>}</div>
+    <div className="flex flex-wrap items-center gap-3"><button formAction={saveChallengeDraft} className="min-h-11 rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-semibold" type="submit">Save draft</button><SubmitChallengeWorkflow challengeId={draft.id} challengeText={text} issuer={issuer} pcnId={pcnId} /></div>
   </form>;
 }

@@ -13,6 +13,7 @@ import { completeChecklistTask } from "@/lib/checklist";
 import { requireAdmin } from "@/lib/require-admin";
 import { calculateInclusiveDeadline } from "@/lib/chatgpt-import";
 import { buildPcnWriteData } from "@/lib/pcn-write";
+import { validateAppealUrl } from "@/lib/appeal-url";
 
 function value(formData: FormData, name: string): string {
   return String(formData.get(name) ?? "").trim();
@@ -366,6 +367,25 @@ export async function markChallengeSubmitted(formData: FormData) {
   revalidatePath("/pcns");
   revalidatePath(detailPath);
   redirect(detailPath);
+}
+
+export async function saveIssuerChallengeUrl(input: { pcnId: string; issuerId: string; url: string }): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  await requireAdmin();
+  const pcnId = String(input?.pcnId ?? "").trim();
+  const issuerId = String(input?.issuerId ?? "").trim();
+  const validation = validateAppealUrl(String(input?.url ?? ""));
+  if (!pcnId || !issuerId) return { ok: false, error: "The issuer could not be verified for this PCN." };
+  if (!validation.ok) return validation;
+  try {
+    const linkedPcn = await prisma.pcn.findFirst({ where: { id: pcnId, issuerId }, select: { id: true } });
+    if (!linkedPcn) return { ok: false, error: "The issuer could not be verified for this PCN." };
+    await prisma.issuer.update({ where: { id: issuerId }, data: { challengeUrl: validation.url } });
+  } catch (error) {
+    logDatabaseError("issuer.appeal-url.update", error);
+    return { ok: false, error: classifyDatabaseError(error).explanation };
+  }
+  revalidatePath(`/pcns/${pcnId}`);
+  return { ok: true, url: validation.url };
 }
 
 export async function updateChallenge(formData: FormData) {
