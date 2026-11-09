@@ -8,6 +8,8 @@ import { validateAppealUrl } from "@/lib/appeal-url";
 
 type Props = {
   pcnId: string;
+  pcnReference: string;
+  vehicleRegistration: string;
   challengeId?: string;
   challengeText: string;
   issuer: { id: string; name: string; challengeUrl: string | null };
@@ -46,7 +48,7 @@ function londonDateInput(now = new Date()): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-export function SubmitChallengeWorkflow({ pcnId, challengeId, challengeText, issuer }: Props) {
+export function SubmitChallengeWorkflow({ pcnId, pcnReference, vehicleRegistration, challengeId, challengeText, issuer }: Props) {
   const [challengeUrl, setChallengeUrl] = useState(issuer.challengeUrl ?? "");
   const [urlInput, setUrlInput] = useState(issuer.challengeUrl ?? "");
   const [dialog, setDialog] = useState<"url" | "confirm" | null>(null);
@@ -145,6 +147,11 @@ export function SubmitChallengeWorkflow({ pcnId, challengeId, challengeText, iss
           <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button className="min-h-11 rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-semibold" disabled={saving} onClick={() => { setError(null); setDialog(null); }} type="button">Cancel</button><button className="min-h-11 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--surface)] disabled:opacity-60" disabled={saving} onClick={() => void saveLink()} type="button">{saving ? "Saving…" : urlPurpose === "edit" ? "Save link" : "Save & Continue"}</button></div>
         </> : <>
           <h2 className="font-serif text-2xl" id="appeal-dialog-title">Did you successfully submit this challenge?</h2>
+          <div className="mt-4 grid gap-3 rounded-xl border border-[var(--line)] bg-[var(--primary-soft)] p-3 sm:grid-cols-[auto_1fr_1fr] sm:items-center sm:p-4" aria-label="Challenge summary">
+            <div className="rounded-lg border border-[var(--primary)]/30 bg-[var(--surface)] px-3 py-2 sm:min-w-32"><span className="block text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">VRM</span><strong className="mt-1 block text-lg font-bold tracking-wide text-[var(--ink)]">{vehicleRegistration}</strong></div>
+            <div className="min-w-0"><span className="block text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">PCN number</span><strong className="mt-1 block break-words text-sm text-[var(--ink)]">{pcnReference}</strong></div>
+            <div className="min-w-0"><span className="block text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Issuer</span><strong className="mt-1 block break-words text-sm text-[var(--ink)]">{issuer.name}</strong></div>
+          </div>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Opening the issuer&apos;s website did not change this draft. Confirm only after the appeal was submitted on the portal.</p>
           {notice && <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-[var(--ink)]" role="status">{notice}</p>}
           {error && <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-[var(--ink)]" role="alert">{error}</p>}
