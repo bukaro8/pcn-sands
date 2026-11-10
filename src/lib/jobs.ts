@@ -36,12 +36,14 @@ export async function sendReportEmail(reportId: string) {
   if (!pdf) throw new Error("Report PDF could not be generated");
   const reportData = await reportForPdf(reportId);
   if (!reportData) throw new Error("Report data could not be loaded");
+  const managerEmail = appConfig.managerWeeklyReportRecipient;
+  if (!managerEmail) throw new Error("MANAGER_EMAIL is missing or invalid");
   const period = `${formatDate(report.periodStart)} - ${formatDate(report.periodEnd)}`;
   const reportLabel = report.type === "WEEKLY" ? "Sands Weekly PCN Report" : "Sands Monthly PCN Report";
   const payments = reportData.report.entries.filter((entry) => entry.paymentNoticeNumber && entry.paymentStatus !== "PAID");
   try {
     const result = await sendEmail({
-      to: appConfig.managerWeeklyReportRecipient,
+      to: managerEmail,
       subject: `${reportLabel} - ${period}`,
       html: buildReportEmailHtml({ type: report.type, periodStart: report.periodStart, periodEnd: report.periodEnd, submitted: reportData.submitted, accepted: reportData.accepted, rejected: reportData.rejected, pending: reportData.pending, payments }),
       attachment: { filename: `${report.type === "WEEKLY" ? "sands-weekly-pcn-report" : "sands-monthly-pcn-report"}-${report.periodStart.toISOString().slice(0, 10)}.pdf`, content: Buffer.from(pdf).toString("base64") },
@@ -56,6 +58,7 @@ export async function sendReportEmail(reportId: string) {
 
 export async function processWeeklyReport(now = new Date(), enforceWindow = true) {
   if (enforceWindow && !isWeeklyReportWindow(now)) return { status: "skipped" as const, reason: "outside-window" };
+  if (!appConfig.managerWeeklyReportRecipient) return { status: "skipped" as const, reason: "missing-manager-email" };
   const period = reportingPeriod("WEEKLY", now);
   const jobKey = `weekly-report:${period.start.toISOString().slice(0, 10)}`;
   const job = await claimJob(jobKey, "WEEKLY_REPORT");
@@ -102,15 +105,18 @@ export async function processPersonalReminders(now = new Date()) {
   // A failed job can be claimed again later that day; accepted reminders become
   // NOTIFIED and cannot be sent twice.
   const reminders = await prisma.reminder.findMany({ where: { status: "PENDING", dueAt: { gte: start, lt: end } }, include: { pcn: { include: { vehicle: true } }, challenge: true, delivery: true } });
-  if (!adminEmail && !reminders.some((reminder) => reminder.type === "PAYMENT_DEADLINE")) {
-    await finishJob(jobKey, "SKIPPED", "ADMIN_EMAIL is not configured");
+  const managerEmail = appConfig.managerWeeklyReportRecipient;
+  const hasPaymentReminders = reminders.some((reminder) => reminder.type === "PAYMENT_DEADLINE");
+  const hasChallengeReminders = reminders.some((reminder) => reminder.type !== "PAYMENT_DEADLINE");
+  if ((!adminEmail && !hasChallengeReminders) && (!managerEmail && !hasPaymentReminders)) {
+    await finishJob(jobKey, "SKIPPED", "No reminder recipient is configured");
     return { status: "skipped" as const, reason: "missing-admin-email" };
   }
   let failures = 0;
   let configurationSkips = 0;
   for (const reminder of reminders) {
     const payment = reminder.type === "PAYMENT_DEADLINE";
-    const recipient = payment ? appConfig.managerWeeklyReportRecipient : adminEmail;
+    const recipient = payment ? managerEmail : adminEmail;
     if (!recipient) { configurationSkips += 1; continue; }
     const deliveryRecipient: string = recipient;
     try {
@@ -124,10 +130,11 @@ export async function processPersonalReminders(now = new Date()) {
     }
   }
   if (!reminders.length || (configurationSkips === reminders.length && !failures)) {
-    await finishJob(jobKey, "SKIPPED", !reminders.length ? "No reminders due" : "ADMIN_EMAIL is not configured for challenge status checks");
-    return { status: "skipped" as const, reason: !reminders.length ? "no-reminders-due" : "missing-admin-email" };
+    const reason = !reminders.length ? "no-reminders-due" : hasPaymentReminders && !managerEmail ? "missing-manager-email" : "missing-admin-email";
+    await finishJob(jobKey, "SKIPPED", !reminders.length ? "No reminders due" : "A reminder recipient is missing or invalid");
+    return { status: "skipped" as const, reason };
   }
-  const warning = configurationSkips ? "Some challenge status checks were skipped because ADMIN_EMAIL is not configured" : undefined;
+  const warning = configurationSkips ? "Some reminders were skipped because a configured recipient is missing or invalid" : undefined;
   await finishJob(jobKey, failures ? "FAILED" : "SUCCEEDED", failures ? "One or more reminder emails failed" : warning);
   return { status: failures ? "failed" as const : "succeeded" as const, count: reminders.length - configurationSkips, warning };
 }

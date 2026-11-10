@@ -12,10 +12,11 @@ async function main() {
   const now = new Date("2046-06-03T11:00:00.000Z");
   const paymentDeadline = new Date("2046-06-05T00:00:00.000Z");
   const jobKey = "personal-reminders:2046-06-03";
-  const previous = { resend: process.env.RESEND_API_KEY, from: process.env.EMAIL_FROM, admin: process.env.ADMIN_EMAIL, fetch: globalThis.fetch };
+  const previous = { resend: process.env.RESEND_API_KEY, from: process.env.EMAIL_FROM, manager: process.env.MANAGER_EMAIL, admin: process.env.ADMIN_EMAIL, fetch: globalThis.fetch };
   const sent: Array<Record<string, unknown>> = [];
   process.env.RESEND_API_KEY = "test_key";
   process.env.EMAIL_FROM = "Sands PCN Management <test@example.com>";
+  process.env.MANAGER_EMAIL = "manager@example.test";
   process.env.ADMIN_EMAIL = "admin@example.test";
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
@@ -65,7 +66,8 @@ async function main() {
 
     const reminderResult = await processPersonalReminders(new Date("2046-06-03T06:00:00.000Z"));
     const deliveredReminder = await prisma.reminder.findUniqueOrThrow({ where: { id: paymentReminder.id }, include: { delivery: true } });
-    if (reminderResult.status !== "succeeded" || deliveredReminder.status !== "NOTIFIED" || deliveredReminder.delivery?.recipient !== appConfig.managerWeeklyReportRecipient || !String(sent[0]?.to).includes(appConfig.managerWeeklyReportRecipient)) throw new Error("Payment reminder was not sent once to the management recipient");
+    const managerEmail = appConfig.managerWeeklyReportRecipient;
+    if (!managerEmail || reminderResult.status !== "succeeded" || deliveredReminder.status !== "NOTIFIED" || deliveredReminder.delivery?.recipient !== managerEmail || !String(sent[0]?.to).includes(managerEmail)) throw new Error("Payment reminder was not sent once to the management recipient");
     const duplicateReminder = await processPersonalReminders(new Date("2046-06-03T07:00:00.000Z"));
     if (duplicateReminder.status !== "skipped" || sent.length !== 1) throw new Error("Duplicate payment reminder was sent");
 
@@ -92,7 +94,7 @@ async function main() {
     await prisma.vehicle.delete({ where: { id: vehicle.id } });
     await prisma.issuer.delete({ where: { id: issuer.id } });
     await prisma.$disconnect();
-    process.env.RESEND_API_KEY = previous.resend; process.env.EMAIL_FROM = previous.from; process.env.ADMIN_EMAIL = previous.admin; globalThis.fetch = previous.fetch;
+    process.env.RESEND_API_KEY = previous.resend; process.env.EMAIL_FROM = previous.from; process.env.MANAGER_EMAIL = previous.manager; process.env.ADMIN_EMAIL = previous.admin; globalThis.fetch = previous.fetch;
   }
 }
 

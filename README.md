@@ -93,7 +93,7 @@ Without an API key, the capture page provides a clear manual-entry fallback.
 
 ### Automated reports and reminders
 
-Weekly management reports always use the fixed recipient in application configuration. A `SENT` record means Resend accepted the message, not that it reached the recipient’s inbox. The weekday midday checklist email goes only to `ADMIN_EMAIL`, contains only actionable cases for that day, and is skipped when there is no work to do. Production email variables, domain verification, and Coolify schedules are documented in [Coolify deployment](#coolify-deployment).
+Weekly and monthly management reports, plus payment-deadline reminders, use the server-only `MANAGER_EMAIL` recipient. Manual report sends show the recipient, sender, subject, exact reporting period and PDF filename before requiring explicit confirmation. A `SENT` record means Resend accepted the message, not that it reached the recipient’s inbox. The weekday midday checklist email and challenge status reminders continue to use `ADMIN_EMAIL`, contain only actionable cases, and are skipped when there is no work to do. Production email variables, domain verification, and Coolify schedules are documented in [Coolify deployment](#coolify-deployment).
 
 When a challenge is rejected, record the actual amount and payment deadline from the notice. The Friday management report is the principal notification; the existing two-day payment-deadline reminder is sent to the fixed management recipient while payment remains unconfirmed. Unpaid cases remain in reporting, not in the administrator’s daily checklist. A later notice is recorded against the existing PCN and only creates a one-off review task when it contains genuinely new information.
 
@@ -132,6 +132,7 @@ Create these values as Coolify secrets. Do not put them in Git, Docker build arg
 | `OPENAI_MODEL` | No | Vision-capable OpenAI model; defaults to `gpt-4.1-mini`. |
 | `RESEND_API_KEY` | No | Enables management-report and personal-reminder delivery. |
 | `EMAIL_FROM` | With Resend | A sender identity on a verified Resend domain. Verify the sender domain in Resend before enabling delivery. |
+| `MANAGER_EMAIL` | With reports/reminders | Manager recipient for weekly/monthly reports and payment-deadline reminders. Must be a valid email address. |
 | `CRON_SECRET` | With scheduled tasks | Long random bearer secret accepted only by the two job endpoints. |
 | `PORT` | No | Application port; defaults to `3000` |
 | `HOSTNAME` | No | Bind address; defaults to `0.0.0.0` |
