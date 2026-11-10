@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 
 import { markChallengeSubmitted, saveIssuerChallengeUrl } from "@/app/actions";
 import { validateAppealUrl } from "@/lib/appeal-url";
+import { defaultStatusCheckDateValue } from "@/lib/challenge-follow-up";
 
 type Props = {
   pcnId: string;
@@ -49,6 +50,7 @@ function londonDateInput(now = new Date()): string {
 }
 
 export function SubmitChallengeWorkflow({ pcnId, pcnReference, vehicleRegistration, challengeId, challengeText, issuer }: Props) {
+  const today = londonDateInput();
   const [challengeUrl, setChallengeUrl] = useState(issuer.challengeUrl ?? "");
   const [urlInput, setUrlInput] = useState(issuer.challengeUrl ?? "");
   const [dialog, setDialog] = useState<"url" | "confirm" | null>(null);
@@ -57,8 +59,10 @@ export function SubmitChallengeWorkflow({ pcnId, pcnReference, vehicleRegistrati
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [openedUrl, setOpenedUrl] = useState<string | null>(null);
+  const [submissionDate, setSubmissionDate] = useState(today);
+  const [nextStatusCheckDate, setNextStatusCheckDate] = useState(defaultStatusCheckDateValue(today));
+  const [statusCheckEdited, setStatusCheckEdited] = useState(false);
   const firstControl = useRef<HTMLInputElement>(null);
-  const today = londonDateInput();
 
   useEffect(() => {
     if (!dialog) return;
@@ -81,6 +85,9 @@ export function SubmitChallengeWorkflow({ pcnId, pcnReference, vehicleRegistrati
       ? "Challenge copied. Paste it into the issuer's appeal form, submit it there, then confirm below."
       : "The appeal portal was opened, but automatic copying was unavailable. Use Copy challenge below before submitting.");
     setError(portalWindow ? null : "Your browser blocked the new tab. Use Open appeal portal below.");
+    setSubmissionDate(today);
+    setNextStatusCheckDate(defaultStatusCheckDateValue(today));
+    setStatusCheckEdited(false);
     setDialog("confirm");
   }
 
@@ -156,7 +163,11 @@ export function SubmitChallengeWorkflow({ pcnId, pcnReference, vehicleRegistrati
           {notice && <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-[var(--ink)]" role="status">{notice}</p>}
           {error && <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-[var(--ink)]" role="alert">{error}</p>}
           <div className="mt-4 flex flex-wrap gap-3"><button className="min-h-11 rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold" onClick={() => void copyText(challengeText).then((copied) => setNotice(copied ? "Challenge copied again." : "Copying was unavailable; select the challenge text manually."))} type="button">Copy challenge</button>{openedUrl && <a className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold" href={openedUrl} rel="noreferrer" target="_blank">Open appeal portal <ExternalLink className="size-4" /></a>}</div>
-          <label className="mt-5 block text-sm font-semibold">Submission date<input className="mt-2 min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)]" defaultValue={today} name="submissionDate" ref={firstControl} required type="date" /></label>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-semibold">Submission date<input className="mt-2 min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)]" name="submissionDate" onChange={(event) => { const date = event.target.value; setSubmissionDate(date); if (!statusCheckEdited) setNextStatusCheckDate(defaultStatusCheckDateValue(date)); }} ref={firstControl} required type="date" value={submissionDate} /></label>
+            <label className="block text-sm font-semibold">Next status check<input className="mt-2 min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)]" name="nextStatusCheckDate" onChange={(event) => { setNextStatusCheckDate(event.target.value); setStatusCheckEdited(true); }} required type="date" value={nextStatusCheckDate} /></label>
+            <p className="text-xs leading-5 text-[var(--muted)] sm:col-span-2">Defaults to 14 calendar days after submission. This follow-up date is separate from payment and appeal deadlines.</p>
+          </div>
           <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button className="min-h-11 rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-semibold" onClick={() => { setDialog(null); setError(null); setNotice("Challenge remains a draft."); }} type="button">Not yet</button><button className="min-h-11 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--surface)]" formAction={markChallengeSubmitted} type="submit">Yes, record submission</button></div>
         </>}
       </section>

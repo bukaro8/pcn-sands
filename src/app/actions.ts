@@ -14,6 +14,7 @@ import { requireAdmin } from "@/lib/require-admin";
 import { calculateInclusiveDeadline } from "@/lib/chatgpt-import";
 import { buildPcnWriteData } from "@/lib/pcn-write";
 import { validateAppealUrl } from "@/lib/appeal-url";
+import { defaultStatusCheckDate } from "@/lib/challenge-follow-up";
 
 function value(formData: FormData, name: string): string {
   return String(formData.get(name) ?? "").trim();
@@ -80,6 +81,8 @@ function actionError(path: string, error: unknown, operation = "pcn.action"): ne
     "Delivery time kind is invalid", "Delivery window end must be later than its start",
     "Discount period must be between 1 and 366 days",
     "Discount deadline does not match the stated inclusive period",
+    "Only a pending submitted challenge can update its status-check date",
+    "Select accepted or rejected before recording a decision", "Only a submitted challenge can have a decision",
   ];
   let message: string;
   if (error instanceof Error && (safeMessages.includes(error.message) || /^(contraventionDate|issueDate|paymentDeadline|discountDeadline|fullPaymentDeadline|discountPeriodStartDate|submissionDate|decisionDate|expectedResponseDate|nextStatusCheckDate) must be a valid date$/.test(error.message))) {
@@ -165,13 +168,23 @@ async function resolveChallengeStatusChecks(challengeId: string) {
 }
 
 async function syncChallengeReminder(pcnId: string, challengeId: string, statusCheckDate: Date | null) {
-  if (!statusCheckDate) return;
+  if (!statusCheckDate) {
+    await resolveChallengeStatusChecks(challengeId);
+    return;
+  }
   const dateKey = statusCheckDate.toISOString().slice(0, 10);
-  await prisma.reminder.upsert({
-    where: { eventKey: `challenge-status-check:${challengeId}:${dateKey}` },
-    create: { pcnId, challengeId, type: "CHALLENGE_STATUS_CHECK", eventKey: `challenge-status-check:${challengeId}:${dateKey}`, dueAt: statusCheckDate },
-    update: { dueAt: statusCheckDate },
-  });
+  const eventKey = `challenge-status-check:${challengeId}:${dateKey}`;
+  await prisma.$transaction([
+    prisma.reminder.updateMany({
+      where: { challengeId, type: "CHALLENGE_STATUS_CHECK", status: { in: ["PENDING", "NOTIFIED"] }, eventKey: { not: eventKey } },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    }),
+    prisma.reminder.upsert({
+      where: { eventKey },
+      create: { pcnId, challengeId, type: "CHALLENGE_STATUS_CHECK", eventKey, dueAt: statusCheckDate },
+      update: { dueAt: statusCheckDate },
+    }),
+  ]);
 }
 
 function parsePcn(formData: FormData) {
@@ -286,9 +299,9 @@ export async function createChallenge(formData: FormData) {
   const detailPath = `/pcns/${pcnId}`;
   try {
     if (!pcnId) throw new Error("PCN is required");
-    const nextStatusCheckDate = optionalDate(formData, "nextStatusCheckDate");
     const stage = enumValue(formData, "stage", challengeStages);
     const submissionDate = requiredDate(formData, "submissionDate");
+    const nextStatusCheckDate = optionalDate(formData, "nextStatusCheckDate") ?? defaultStatusCheckDate(submissionDate);
     const duplicate = await prisma.challenge.findFirst({ where: { pcnId, stage, submissionDate } });
     if (duplicate) throw new Error("A challenge for this stage and submission date already exists");
     const challenge = await prisma.challenge.create({
@@ -352,7 +365,7 @@ export async function markChallengeSubmitted(formData: FormData) {
     if (challenge.submissionDate) throw new Error("This challenge has already been marked as submitted");
     const duplicate = await prisma.challenge.findFirst({ where: { pcnId, stage: challenge.stage, submissionDate } });
     if (duplicate) throw new Error("A challenge for this stage and submission date already exists");
-    const nextStatusCheckDate = optionalDate(formData, "nextStatusCheckDate");
+    const nextStatusCheckDate = optionalDate(formData, "nextStatusCheckDate") ?? defaultStatusCheckDate(submissionDate);
     const challengeText = value(formData, "challengeText");
     if (!challengeText) throw new Error("Challenge text is required before submission");
     if (challengeText.length > 12000) throw new Error("Challenge text is too long");
@@ -396,35 +409,62 @@ export async function updateChallenge(formData: FormData) {
   try {
     if (!pcnId || !challengeId) throw new Error("Challenge is required");
     const outcome = enumValue(formData, "outcome", challengeOutcomes);
+    if (outcome === "PENDING") throw new Error("Select accepted or rejected before recording a decision");
     const decisionDate = optionalDate(formData, "decisionDate");
-    if (outcome !== "PENDING" && !decisionDate) throw new Error("A decision date is required for an accepted or rejected challenge");
-    const existing = await prisma.challenge.findUnique({ where: { id: challengeId }, select: { pcnId: true, pcn: { select: { paymentStatus: true } } } });
+    if (!decisionDate) throw new Error("A decision date is required for an accepted or rejected challenge");
+    const decisionNotes = optionalValue(formData, "decisionNotes");
+    if ((decisionNotes?.length ?? 0) > 4000) throw new Error("Notes are too long");
+    const existing = await prisma.challenge.findUnique({ where: { id: challengeId }, select: { pcnId: true, submissionDate: true, pcn: { select: { paymentStatus: true, paymentDeadline: true, paymentAmountPence: true, paymentReference: true } } } });
     if (!existing || existing.pcnId !== pcnId) throw new Error("Challenge does not belong to this PCN");
+    if (!existing.submissionDate) throw new Error("Only a submitted challenge can have a decision");
     await prisma.challenge.update({
       where: { id: challengeId },
-      data: { outcome, decisionDate, nextStatusCheckDate: optionalDate(formData, "nextStatusCheckDate") },
+      data: { outcome, decisionDate, decisionNotes },
     });
     if (outcome === "REJECTED") {
       const paymentStatus = enumValue(formData, "paymentStatus", paymentStatuses);
       if (paymentStatus === "NOT_REQUIRED") throw new Error("A rejected challenge must retain a payment status");
-      const paymentDeadline = optionalDate(formData, "paymentDeadline");
+      const paymentDeadline = optionalDate(formData, "paymentDeadline") ?? existing.pcn.paymentDeadline;
+      const paymentAmountPence = optionalMoneyInPence(formData, "paymentAmount") ?? existing.pcn.paymentAmountPence;
+      const paymentReference = optionalValue(formData, "paymentReference") ?? existing.pcn.paymentReference;
       await prisma.pcn.update({ where: { id: pcnId }, data: {
         challengeStatus: "REJECTED",
         paymentStatus,
         paymentDeadline,
-        paymentAmountPence: optionalMoneyInPence(formData, "paymentAmount"),
-        paymentReference: optionalValue(formData, "paymentReference"),
+        paymentAmountPence,
+        paymentReference,
       } });
       await syncPaymentReminder(pcnId, paymentDeadline, paymentStatus);
     } else {
-      await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: outcome === "PENDING" ? "AWAITING_DECISION" : outcome } });
+      await prisma.pcn.update({ where: { id: pcnId }, data: { challengeStatus: outcome } });
     }
-    if (outcome !== "PENDING") await resolveChallengeStatusChecks(challengeId);
+    await resolveChallengeStatusChecks(challengeId);
   } catch (error) {
     actionError(detailPath, error);
   }
   revalidatePath("/");
   revalidatePath("/pcns");
+  revalidatePath(detailPath);
+  redirect(detailPath);
+}
+
+export async function updateChallengeStatusCheck(formData: FormData) {
+  await requireAdmin();
+  const pcnId = value(formData, "pcnId");
+  const challengeId = value(formData, "challengeId");
+  const detailPath = `/pcns/${pcnId}`;
+  try {
+    if (!pcnId || !challengeId) throw new Error("Challenge is required");
+    const challenge = await prisma.challenge.findUnique({ where: { id: challengeId }, select: { pcnId: true, submissionDate: true, outcome: true } });
+    if (!challenge || challenge.pcnId !== pcnId) throw new Error("Challenge does not belong to this PCN");
+    if (!challenge.submissionDate || challenge.outcome !== "PENDING") throw new Error("Only a pending submitted challenge can update its status-check date");
+    const nextStatusCheckDate = optionalDate(formData, "nextStatusCheckDate");
+    await prisma.challenge.update({ where: { id: challengeId }, data: { nextStatusCheckDate } });
+    await syncChallengeReminder(pcnId, challengeId, nextStatusCheckDate);
+  } catch (error) {
+    actionError(detailPath, error);
+  }
+  revalidatePath("/");
   revalidatePath(detailPath);
   redirect(detailPath);
 }

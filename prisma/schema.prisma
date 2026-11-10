@@ -168,6 +168,7 @@ model Challenge {
   submissionDate       DateTime?        @db.Date
   outcome              ChallengeOutcome @default(PENDING)
   decisionDate         DateTime?        @db.Date
+  decisionNotes        String?
   expectedResponseDate DateTime?        @db.Date
   nextStatusCheckDate  DateTime?        @db.Date
   challengeText        String?
@@ -206,6 +207,7 @@ model ReportEntry {
   challengeStatus     ChallengeStatus
   paymentStatus       PaymentStatus
   paymentDeadline     DateTime?       @db.Date
+  nextStatusCheckDate DateTime?       @db.Date
   paymentAmountPence  Int?
   paymentNoticeNumber Int?
   report              ReportHistory   @relation(fields: [reportId], references: [id], onDelete: Cascade)

@@ -172,7 +172,7 @@ export async function buildReportPdf(reportId: string): Promise<Uint8Array | nul
     text(page, `PCN ${entry.pcn.reference}`, 58, y - 46, 8, "regular", colour.muted);
     text(page, noticeLabel(entry.paymentNoticeNumber).toUpperCase(), 58, y - 63, 7, "bold", overdue ? colour.terracotta : colour.sage);
     text(page, formatAmount(entry.paymentAmountPence), 310, y - 25, 13, "bold", colour.ink);
-    text(page, `Due ${entry.paymentDeadline ? formatDate(entry.paymentDeadline) : "not recorded"}`, 310, y - 44, 9, "regular", overdue ? colour.terracotta : colour.ink);
+    text(page, `Payment deadline: ${entry.paymentDeadline ? formatDate(entry.paymentDeadline) : "not recorded"}`, 310, y - 44, 9, "regular", overdue ? colour.terracotta : colour.ink);
     text(page, `${statusLabel(entry.paymentStatus)}${overdue ? " · OVERDUE" : ""}`, 310, y - 62, 8, "bold", overdue ? colour.terracotta : colour.muted);
     y -= 90;
   }
@@ -187,13 +187,14 @@ export async function buildReportPdf(reportId: string): Promise<Uint8Array | nul
     text(page, "PCN REFERENCE", 190, y, 7, "bold", colour.muted);
     text(page, "CURRENT STATUS", 424, y, 7, "bold", colour.muted); y -= 13;
     for (const entry of report.entries) {
-      if (y < 76) { newPage("Case status register - continued"); text(page, "VEHICLE", 48, y, 7, "bold", colour.muted); text(page, "PCN REFERENCE", 190, y, 7, "bold", colour.muted); text(page, "CURRENT STATUS", 424, y, 7, "bold", colour.muted); y -= 13; }
-      rectangle(page, 42, y - 24, 511, 28, colour.white, colour.line);
+      if (y < 90) { newPage("Case status register - continued"); text(page, "VEHICLE", 48, y, 7, "bold", colour.muted); text(page, "PCN REFERENCE", 190, y, 7, "bold", colour.muted); text(page, "CURRENT STATUS", 424, y, 7, "bold", colour.muted); y -= 13; }
+      rectangle(page, 42, y - 36, 511, 40, colour.white, colour.line);
       text(page, entry.pcn.vehicle.registrationDisplay, 48, y - 10, 9, "bold", colour.forest);
       text(page, entry.pcn.reference, 190, y - 10, 8, "regular", colour.ink);
       const compactStatus = entry.challengeStatus === "AWAITING_DECISION" ? "Awaiting decision" : entry.challengeStatus === "AWAITING_CHALLENGE" ? "Awaiting challenge" : statusLabel(entry.challengeStatus);
       text(page, compactStatus, 424, y - 10, 8, "bold", entry.challengeStatus === "ACCEPTED" ? colour.sage : entry.challengeStatus === "REJECTED" ? colour.terracotta : colour.amber);
-      y -= 32;
+      if (entry.nextStatusCheckDate) text(page, `Next status check: ${formatDate(entry.nextStatusCheckDate)}`, 190, y - 26, 7, "regular", colour.muted);
+      y -= 44;
     }
   }
 

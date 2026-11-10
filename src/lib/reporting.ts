@@ -52,8 +52,11 @@ export async function createOrGetReport(type: ReportType, now = new Date()) {
       const report = await tx.reportHistory.create({ data: { type, periodStart: period.start, periodEnd: period.end } });
       for (const pcn of pcns) {
         const outstanding = pcn.paymentStatus === "PAYMENT_REQUIRED" || pcn.paymentStatus === "PAYMENT_UNCONFIRMED";
+        const nextStatusCheckDate = pcn.challenges
+          .filter((challenge) => challenge.outcome === "PENDING" && challenge.submissionDate && challenge.nextStatusCheckDate)
+          .sort((left, right) => (right.submissionDate?.getTime() ?? 0) - (left.submissionDate?.getTime() ?? 0))[0]?.nextStatusCheckDate ?? null;
         const previous = outstanding ? await tx.reportEntry.findFirst({ where: { pcnId: pcn.id, paymentNoticeNumber: { not: null } }, orderBy: { paymentNoticeNumber: "desc" }, select: { paymentNoticeNumber: true } }) : null;
-        await tx.reportEntry.create({ data: { reportId: report.id, pcnId: pcn.id, challengeStatus: pcn.challengeStatus, paymentStatus: pcn.paymentStatus, paymentDeadline: pcn.paymentDeadline, paymentAmountPence: pcn.paymentAmountPence, paymentNoticeNumber: outstanding ? (previous?.paymentNoticeNumber ?? 0) + 1 : null } });
+        await tx.reportEntry.create({ data: { reportId: report.id, pcnId: pcn.id, challengeStatus: pcn.challengeStatus, paymentStatus: pcn.paymentStatus, paymentDeadline: pcn.paymentDeadline, nextStatusCheckDate, paymentAmountPence: pcn.paymentAmountPence, paymentNoticeNumber: outstanding ? (previous?.paymentNoticeNumber ?? 0) + 1 : null } });
       }
       return tx.reportHistory.findUniqueOrThrow({ where: { id: report.id }, include: { entries: true } });
     });

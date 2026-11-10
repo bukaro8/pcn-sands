@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PartyPopper } from "lucide-react";
 
-import { completeReminder, recordSubsequentNotice, updateChallenge, updatePcn } from "@/app/actions";
+import { completeReminder, recordSubsequentNotice, updateChallengeStatusCheck, updatePcn } from "@/app/actions";
+import { ChallengeDecisionDialog } from "@/components/challenge-decision-dialog";
 import { ChallengeDraftEditor } from "@/components/challenge-draft-editor";
 import { InvoiceImport } from "@/components/invoice-import";
 import { PcnDetailSections } from "@/components/pcn-detail-sections";
@@ -12,7 +13,7 @@ import { PcnForm } from "@/components/pcn-form";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isDiscountExpired } from "@/lib/chatgpt-import";
-import { challengeOutcomes, dateInputValue, formatDate, isOverdue, noticeTypes, paymentStatuses, statusLabel } from "@/lib/pcn";
+import { dateInputValue, formatDate, isOverdue, noticeTypes, statusLabel } from "@/lib/pcn";
 import { analyzeDeliveryEvidence, extractContraventionTime } from "@/lib/delivery-evidence";
 import { pcnDetailDefaultSections } from "@/lib/pcn-detail-sections";
 
@@ -115,15 +116,13 @@ export default async function PcnDetailPage({ params, searchParams }: { params: 
             defaultOpen: false,
             content: <div className="space-y-5">
             {submittedChallenges.length === 0 ? <p className="text-sm text-slate-600">No challenge has been marked as submitted yet.</p> : submittedChallenges.map((challenge) => (
-              <form action={updateChallenge} className="rounded-lg border border-slate-200 p-4" key={challenge.id}>
-                <input name="pcnId" type="hidden" value={pcn.id} />
-                <input name="challengeId" type="hidden" value={challenge.id} />
-                <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-medium">{statusLabel(challenge.stage)}</p><p className="text-sm text-slate-600">Submitted {formatDate(challenge.submissionDate)}</p></div><StatusBadge status={challenge.outcome} /></div>
-                {challenge.challengeText && <p className="mt-3 whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-sm text-slate-700">{challenge.challengeText}</p>}
-                <div className="mt-4 grid gap-4 sm:grid-cols-3"><label className="text-sm font-medium">Outcome<select className={inputClass} defaultValue={challenge.outcome} name="outcome">{challengeOutcomes.map((outcome) => <option key={outcome} value={outcome}>{statusLabel(outcome)}</option>)}</select></label><label className="text-sm font-medium">Decision date<input className={inputClass} defaultValue={dateInputValue(challenge.decisionDate)} name="decisionDate" type="date" /></label><label className="text-sm font-medium">Status-check date<input className={inputClass} defaultValue={dateInputValue(challenge.nextStatusCheckDate)} name="nextStatusCheckDate" type="date" /></label></div>
-                <fieldset className="mt-5 grid gap-4 rounded-xl border border-rose-100 bg-rose-50/40 p-4 sm:grid-cols-2"><legend className="px-1 text-sm font-semibold text-rose-900">If the challenge was rejected</legend><p className="sm:col-span-2 text-sm text-rose-900">Record the actual amount and deadline shown on the rejection notice, including any new discount it offers. Original PCN terms are not copied into these fields automatically.</p><label className="text-sm font-medium">Payment status<select className={inputClass} defaultValue={challenge.outcome === "REJECTED" ? pcn.paymentStatus : "PAYMENT_REQUIRED"} name="paymentStatus">{paymentStatuses.filter((status) => status !== "NOT_REQUIRED").map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><label className="text-sm font-medium">Payment deadline<input className={inputClass} defaultValue={challenge.outcome === "REJECTED" ? dateInputValue(pcn.paymentDeadline) : ""} name="paymentDeadline" type="date" /></label><label className="text-sm font-medium">Amount payable<span className="relative mt-1 block"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">£</span><input className={`${inputClass} mt-0 pl-7`} defaultValue={challenge.outcome === "REJECTED" && pcn.paymentAmountPence != null ? (pcn.paymentAmountPence / 100).toFixed(2) : ""} inputMode="decimal" min="0" name="paymentAmount" placeholder="Enter the rejection notice amount" step="0.01" type="number" /></span></label><label className="text-sm font-medium">Payment reference (optional)<input className={inputClass} defaultValue={challenge.outcome === "REJECTED" ? pcn.paymentReference ?? "" : ""} name="paymentReference" /></label></fieldset>
-                <button className="mt-4 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50" type="submit">Record decision</button>
-              </form>
+              <article className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4" key={challenge.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{statusLabel(challenge.stage)}</p><p className="mt-1 text-sm text-[var(--muted)]">Submitted {formatDate(challenge.submissionDate)}</p></div><StatusBadge status={challenge.outcome} /></div>
+                {challenge.outcome === "PENDING" && <form action={updateChallengeStatusCheck} className="mt-4 grid gap-3 rounded-xl border border-[var(--line)] bg-[var(--primary-soft)] p-4 sm:grid-cols-[1fr_auto] sm:items-end"><input name="pcnId" type="hidden" value={pcn.id} /><input name="challengeId" type="hidden" value={challenge.id} /><label className="text-sm font-semibold">Next status check<input className={inputClass} defaultValue={dateInputValue(challenge.nextStatusCheckDate)} name="nextStatusCheckDate" type="date" /></label><button className="min-h-11 rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary)]" type="submit">Update check date</button><p className="text-xs leading-5 text-[var(--muted)] sm:col-span-2">Follow-up reminder only — not a statutory payment or appeal deadline.</p></form>}
+                {challenge.outcome !== "PENDING" && <div className="mt-4 rounded-xl bg-[var(--primary-soft)] p-4 text-sm"><p><strong>Decision date:</strong> {formatDate(challenge.decisionDate)}</p>{challenge.decisionNotes && <p className="mt-2 whitespace-pre-wrap text-[var(--muted)]">{challenge.decisionNotes}</p>}</div>}
+                {challenge.challengeText && <details className="mt-4"><summary className="cursor-pointer text-sm font-semibold text-[var(--primary)]">View submitted challenge</summary><p className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{challenge.challengeText}</p></details>}
+                <div className="mt-4 flex justify-end"><ChallengeDecisionDialog challengeId={challenge.id} currentOutcome={challenge.outcome} decisionDate={dateInputValue(challenge.decisionDate)} decisionNotes={challenge.decisionNotes ?? ""} paymentAmount={pcn.paymentAmountPence == null ? "" : (pcn.paymentAmountPence / 100).toFixed(2)} paymentDeadline={dateInputValue(pcn.paymentDeadline)} paymentReference={pcn.paymentReference ?? ""} paymentStatus={pcn.paymentStatus} pcnId={pcn.id} /></div>
+              </article>
             ))}
             </div>,
           },
