@@ -1,7 +1,7 @@
 import "dotenv/config";
 
-import { processPersonalReminders, processWeeklyReport, isWeeklyReportWindow, sendReportEmail } from "../src/lib/jobs";
-import { createOrGetReport } from "../src/lib/reporting";
+import { processPersonalReminders, processWeeklyReport, isWeeklyReportWindow, sendFreshReportEmail } from "../src/lib/jobs";
+import { createReportSnapshot } from "../src/lib/reporting";
 import { prisma } from "../src/lib/prisma";
 import { getOrCreateVehicle } from "../src/lib/vehicles";
 
@@ -18,19 +18,21 @@ async function main() {
   try {
     const pcn = await prisma.pcn.create({ data: { reference: `EMAIL-${suffix}`, vehicleId: vehicle.id, issuerId: issuer.id, contraventionLocation: "Email Street", contraventionDate: new Date("2039-06-01T00:00:00.000Z"), issueDate: new Date("2039-06-01T00:00:00.000Z"), noticeType: "ORIGINAL_PCN", paymentStatus: "PAYMENT_REQUIRED", paymentDeadline: new Date("2039-06-05T00:00:00.000Z") } }); pcnId = pcn.id;
     const challenge = await prisma.challenge.create({ data: { pcnId, stage: "INITIAL", submissionDate: new Date("2039-06-01T00:00:00.000Z") } });
+    const manualWeekly = await createReportSnapshot("WEEKLY", new Date("2039-06-03T05:30:00.000Z")); reportIds.push(manualWeekly.id);
     const weekly = await processWeeklyReport(new Date("2039-06-03T06:00:00.000Z"));
     if (weekly.status !== "succeeded" || sent.length !== 1 || !String(sent[0]?.to).includes("manager@example.test") || !JSON.stringify(sent[0]).includes("attachments")) throw new Error("Weekly report email verification failed");
-    if ("reportId" in weekly) reportIds.push(weekly.reportId);
+    if ("reportId" in weekly) { reportIds.push(weekly.reportId); if (weekly.reportId === manualWeekly.id) throw new Error("Manual generation suppressed the scheduled report snapshot"); }
     const duplicate = await processWeeklyReport(new Date("2039-06-03T06:05:00.000Z")); if (duplicate.status !== "skipped" || sent.length !== 1) throw new Error("Duplicate weekly report was sent");
-    const monthly = await createOrGetReport("MONTHLY", new Date("2039-06-15T09:00:00.000Z")); reportIds.push(monthly.id);
-    const monthlyResult = await sendReportEmail(monthly.id);
+    const monthly = await createReportSnapshot("MONTHLY", new Date("2039-06-15T09:00:00.000Z")); reportIds.push(monthly.id);
+    const monthlyResult = await sendFreshReportEmail(monthly.id); reportIds.push(monthlyResult.reportId);
     const monthlyPayload = sent.at(-1);
-    if (!monthlyResult.sent || !String(monthlyPayload?.subject).includes("Sands Monthly PCN Report") || !String(monthlyPayload?.html).includes("PCA · PCN Coordination")) throw new Error("Monthly executive report email verification failed");
+    if (!monthlyResult.sent || monthlyResult.reportId === monthly.id || !String(monthlyPayload?.subject).includes("Sands Monthly PCN Report") || !String(monthlyPayload?.html).includes("PCA · PCN Coordination")) throw new Error("Fresh monthly executive report email verification failed");
     globalThis.fetch = (async () => new Response(JSON.stringify({ message: "failure" }), { status: 500 })) as typeof fetch;
     const failed = await processWeeklyReport(new Date("2039-06-10T06:00:00.000Z")); if (failed.status !== "failed") throw new Error("Failed email handling was not recorded");
+    const failedJob = await prisma.jobExecution.findUniqueOrThrow({ where: { jobKey: "weekly-report:2039-06-06" } });
     globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => { sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return new Response(JSON.stringify({ id: `email_${sent.length}` }), { status: 200 }); }) as typeof fetch;
     const retried = await processWeeklyReport(new Date("2039-06-10T06:05:00.000Z")); if (retried.status !== "succeeded") throw new Error("Failed report email did not retry safely");
-    if ("reportId" in retried) reportIds.push(retried.reportId);
+    if ("reportId" in retried) { reportIds.push(retried.reportId); if (retried.reportId !== failedJob.reportId) throw new Error("Scheduled retry created a second report or email run"); }
     const reminder = await prisma.reminder.create({ data: { pcnId, type: "PAYMENT_DEADLINE", eventKey: `email-test:${suffix}`, dueAt: new Date("2039-06-03T00:00:00.000Z") } });
     const statusCheckReminder = await prisma.reminder.create({ data: { pcnId, challengeId: challenge.id, type: "CHALLENGE_STATUS_CHECK", eventKey: `email-test-status-check:${suffix}`, dueAt: new Date("2039-06-03T00:00:00.000Z") } });
     const reminders = await processPersonalReminders(new Date("2039-06-03T06:00:00.000Z"));
@@ -45,7 +47,7 @@ async function main() {
     const missingAdmin = await processPersonalReminders(new Date("2039-06-04T06:00:00.000Z"));
     if (missingAdmin.status !== "skipped" || missingAdmin.reason !== "no-reminders-due") throw new Error("Missing ADMIN_EMAIL was not handled safely");
     process.env.ADMIN_EMAIL = "admin@example.com";
-    console.log("Mocked weekly email, reminders, DST scheduling, duplicate prevention and completion successful");
+    console.log("Mocked fresh manual email, scheduled report independence, retry idempotency, reminders, DST scheduling and completion successful");
   } finally {
     if (reportIds.length) await prisma.reportHistory.deleteMany({ where: { id: { in: reportIds } } });
     if (pcnId) await prisma.pcn.delete({ where: { id: pcnId } });

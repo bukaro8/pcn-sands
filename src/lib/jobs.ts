@@ -4,7 +4,7 @@ import { buildChecklistEmailHtml } from "@/lib/checklist-email";
 import { sendEmail } from "@/lib/email";
 import { buildReportEmailHtml } from "@/lib/report-email";
 import { buildReportPdf } from "@/lib/report-pdf";
-import { createOrGetReport, formatDate, reportForPdf, reportingPeriod } from "@/lib/reporting";
+import { createReportSnapshot, createReportSnapshotForPeriod, formatDate, reportForPdf, reportingPeriod } from "@/lib/reporting";
 import { prisma } from "@/lib/prisma";
 
 function londonParts(now: Date) {
@@ -56,6 +56,14 @@ export async function sendReportEmail(reportId: string) {
   }
 }
 
+export async function sendFreshReportEmail(sourceReportId: string) {
+  const source = await prisma.reportHistory.findUnique({ where: { id: sourceReportId }, select: { type: true, periodStart: true, periodEnd: true } });
+  if (!source) throw new Error("Report not found");
+  const report = await createReportSnapshotForPeriod(source.type, source.periodStart, source.periodEnd);
+  const result = await sendReportEmail(report.id);
+  return { ...result, reportId: report.id };
+}
+
 export async function processWeeklyReport(now = new Date(), enforceWindow = true) {
   if (enforceWindow && !isWeeklyReportWindow(now)) return { status: "skipped" as const, reason: "outside-window" };
   if (!appConfig.managerWeeklyReportRecipient) return { status: "skipped" as const, reason: "missing-manager-email" };
@@ -64,10 +72,15 @@ export async function processWeeklyReport(now = new Date(), enforceWindow = true
   const job = await claimJob(jobKey, "WEEKLY_REPORT");
   if (!job) return { status: "skipped" as const, reason: "already-processed" };
   try {
-    const report = await createOrGetReport("WEEKLY", now);
-    const result = await sendReportEmail(report.id);
+    let reportId = job.reportId;
+    if (!reportId) {
+      const report = await createReportSnapshot("WEEKLY", now);
+      await prisma.jobExecution.update({ where: { jobKey }, data: { reportId: report.id } });
+      reportId = report.id;
+    }
+    const result = await sendReportEmail(reportId);
     await finishJob(jobKey, "SUCCEEDED");
-    return { status: "succeeded" as const, reportId: report.id, result };
+    return { status: "succeeded" as const, reportId, result };
   } catch {
     await finishJob(jobKey, "FAILED", "Weekly report email submission failed");
     return { status: "failed" as const };

@@ -4,7 +4,7 @@ import { getDailyChecklist, completeChecklistTask } from "../src/lib/checklist";
 import { appConfig } from "../src/lib/config";
 import { processPersonalReminders } from "../src/lib/jobs";
 import { prisma } from "../src/lib/prisma";
-import { createOrGetReport } from "../src/lib/reporting";
+import { createReportSnapshot } from "../src/lib/reporting";
 import { getOrCreateVehicle } from "../src/lib/vehicles";
 
 async function main() {
@@ -71,7 +71,7 @@ async function main() {
     const duplicateReminder = await processPersonalReminders(new Date("2046-06-03T07:00:00.000Z"));
     if (duplicateReminder.status !== "skipped" || sent.length !== 1) throw new Error("Duplicate payment reminder was sent");
 
-    const report = await createOrGetReport("WEEKLY", new Date("2046-06-05T06:00:00.000Z"));
+    const report = await createReportSnapshot("WEEKLY", new Date("2046-06-05T06:00:00.000Z"));
     reportIds.push(report.id);
     const paymentEntry = report.entries.find((entry) => entry.pcnId === pcnId);
     if (!paymentEntry || paymentEntry.paymentStatus !== "PAYMENT_REQUIRED" || paymentEntry.paymentAmountPence !== 7000) throw new Error("Rejection notice amount was not preserved in the Friday report snapshot");

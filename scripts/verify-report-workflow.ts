@@ -2,7 +2,7 @@ import "dotenv/config";
 import { writeFile } from "node:fs/promises";
 
 import { buildReportPdf } from "../src/lib/report-pdf";
-import { createOrGetReport, reportForPdf } from "../src/lib/reporting";
+import { createReportSnapshot, reportForPdf } from "../src/lib/reporting";
 import { prisma } from "../src/lib/prisma";
 import { getOrCreateVehicle } from "../src/lib/vehicles";
 
@@ -18,22 +18,27 @@ async function main() {
     const nextStatusCheckDate = new Date("2040-01-18T00:00:00.000Z");
     await prisma.challenge.create({ data: { pcnId, stage: "INITIAL", submissionDate: new Date("2040-01-04T00:00:00.000Z"), outcome: "PENDING", nextStatusCheckDate } });
     await prisma.challenge.create({ data: { pcnId, stage: "FORMAL", submissionDate: new Date("2040-01-05T00:00:00.000Z"), outcome: "ACCEPTED", decisionDate: new Date("2040-01-05T00:00:00.000Z") } });
-    const weekOne = await createOrGetReport("WEEKLY", new Date("2040-01-06T09:00:00.000Z")); reportIds.push(weekOne.id);
-    const weekOneAgain = await createOrGetReport("WEEKLY", new Date("2040-01-06T12:00:00.000Z"));
-    if (weekOne.id !== weekOneAgain.id) throw new Error("Repeated weekly generation created a second report");
+    const weekOne = await createReportSnapshot("WEEKLY", new Date("2040-01-06T09:00:00.000Z")); reportIds.push(weekOne.id);
+    await prisma.pcn.update({ where: { id: pcnId }, data: { paymentAmountPence: 8200, paymentDeadline: new Date("2040-01-25T00:00:00.000Z") } });
+    const weekOneAgain = await createReportSnapshot("WEEKLY", new Date("2040-01-06T12:00:00.000Z")); reportIds.push(weekOneAgain.id);
+    if (weekOne.id === weekOneAgain.id) throw new Error("Repeated weekly generation reused an older report");
     const entryOne = weekOne.entries.find((entry) => entry.pcnId === pcnId);
     if (entryOne?.paymentNoticeNumber !== 1) throw new Error("First payment notice was not recorded");
     if (entryOne.nextStatusCheckDate?.toISOString() !== nextStatusCheckDate.toISOString()) throw new Error("Next status check was not preserved in the report snapshot");
+    const entryOneAgain = weekOneAgain.entries.find((entry) => entry.pcnId === pcnId);
+    if (entryOneAgain?.paymentAmountPence !== 8200 || entryOneAgain.paymentNoticeNumber !== 1) throw new Error("Repeated generation did not use current data or changed the same-period notice number");
     const summary = await reportForPdf(weekOne.id);
     if (!summary || summary.submitted !== 1 || summary.accepted !== 1 || summary.outcomeCounts.awaiting !== 1 || summary.report.entries[0]?.paymentAmountPence !== 6500) throw new Error("Executive report counts or payment amount were incorrect");
-    const weekTwo = await createOrGetReport("WEEKLY", new Date("2040-01-13T09:00:00.000Z")); reportIds.push(weekTwo.id);
+    const monthlySameWindow = await createReportSnapshot("MONTHLY", new Date("2040-01-06T09:00:00.000Z")); reportIds.push(monthlySameWindow.id);
+    if (monthlySameWindow.type !== "MONTHLY" || monthlySameWindow.id === weekOneAgain.id) throw new Error("Weekly and monthly report histories were not independent");
+    const weekTwo = await createReportSnapshot("WEEKLY", new Date("2040-01-13T09:00:00.000Z")); reportIds.push(weekTwo.id);
     const entryTwo = weekTwo.entries.find((entry) => entry.pcnId === pcnId);
     if (entryTwo?.paymentNoticeNumber !== 2) throw new Error("Outstanding payment did not carry over as a second notice");
-    const monthly = await createOrGetReport("MONTHLY", new Date("2040-02-05T09:00:00.000Z")); reportIds.push(monthly.id);
+    const monthly = await createReportSnapshot("MONTHLY", new Date("2040-02-05T09:00:00.000Z")); reportIds.push(monthly.id);
     const pdf = await buildReportPdf(weekTwo.id);
     if (!pdf || !new TextDecoder().decode(pdf.slice(0, 8)).startsWith("%PDF-1.")) throw new Error("PDF generation failed");
     await writeFile("/private/tmp/pcn-report-verification.pdf", pdf);
-    console.log(`Report workflow verification successful; monthly report ${monthly.id} created and PDF written for visual inspection`);
+    console.log(`Versioned report generation, current-data snapshots, weekly/monthly independence and PDF generation successful; monthly report ${monthly.id} created`);
   } finally {
     if (reportIds.length) await prisma.reportHistory.deleteMany({ where: { id: { in: reportIds } } });
     if (pcnId) await prisma.pcn.delete({ where: { id: pcnId } });

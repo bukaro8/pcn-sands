@@ -7,8 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, logDatabaseError } from "@/lib/database-errors";
 import { challengeOutcomes, challengeStages, challengeStatuses, issuerTypes, noticeTypes, paymentStatuses } from "@/lib/pcn";
 import { getOrCreateVehicle, normalizeUkRegistration } from "@/lib/vehicles";
-import { createOrGetReport } from "@/lib/reporting";
-import { sendReportEmail } from "@/lib/jobs";
+import { createReportSnapshot } from "@/lib/reporting";
+import { sendFreshReportEmail } from "@/lib/jobs";
 import { completeChecklistTask } from "@/lib/checklist";
 import { requireAdmin } from "@/lib/require-admin";
 import { calculateInclusiveDeadline } from "@/lib/chatgpt-import";
@@ -538,7 +538,7 @@ export async function generateReport(formData: FormData) {
   if (type !== "WEEKLY" && type !== "MONTHLY") redirect("/reports?error=Invalid%20report%20type");
   let reportId: string;
   try {
-    const report = await createOrGetReport(type);
+    const report = await createReportSnapshot(type);
     reportId = report.id;
   } catch (error) {
     logDatabaseError("Report generation", error);
@@ -552,7 +552,7 @@ export async function manuallySendReport(formData: FormData) {
   await requireAdmin();
   const reportId = value(formData, "reportId");
   try {
-    const result = await sendReportEmail(reportId);
+    const result = await sendFreshReportEmail(reportId);
     if (!result.sent) redirect("/reports?error=This%20report%20was%20already%20accepted%20by%20the%20email%20provider");
   } catch {
     redirect("/reports?error=Report%20email%20was%20not%20accepted%20by%20the%20provider");

@@ -195,8 +195,8 @@ model ReportHistory {
   emailProviderId     String?
   emailError          String?
   entries             ReportEntry[]
+  jobExecutions       JobExecution[]
 
-  @@unique([type, periodStart, periodEnd])
   @@index([type, periodStart, periodEnd])
 }
 
@@ -210,6 +210,9 @@ model ReportEntry {
   nextStatusCheckDate DateTime?       @db.Date
   paymentAmountPence  Int?
   paymentNoticeNumber Int?
+  submittedInPeriod   Boolean         @default(false)
+  acceptedInPeriod    Boolean         @default(false)
+  rejectedInPeriod    Boolean         @default(false)
   report              ReportHistory   @relation(fields: [reportId], references: [id], onDelete: Cascade)
   pcn                 Pcn             @relation(fields: [pcnId], references: [id], onDelete: Restrict)
 
@@ -307,16 +310,18 @@ model ReminderDelivery {
 }
 
 model JobExecution {
-  id         String    @id @default(cuid())
-  jobKey     String    @unique
+  id         String         @id @default(cuid())
+  jobKey     String         @unique
   type       JobType
   status     JobStatus
-  attempts   Int       @default(1)
-  startedAt  DateTime  @default(now())
+  attempts   Int            @default(1)
+  startedAt  DateTime       @default(now())
   finishedAt DateTime?
   error      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  reportId   String?        @unique
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  report     ReportHistory? @relation(fields: [reportId], references: [id], onDelete: SetNull)
 
   @@index([type, status])
 }

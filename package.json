@@ -25,6 +25,7 @@
     "reports:preview": "tsx scripts/preview-executive-reports.ts",
     "db:verify-email-jobs": "tsx scripts/verify-email-jobs.ts",
     "test:report-email": "node --import tsx scripts/verify-report-email-config.ts",
+    "test:report-download": "node --import tsx scripts/test-report-download.ts",
     "db:verify-checklist": "tsx scripts/verify-checklist.ts",
     "db:verify-lifecycle": "tsx scripts/verify-simplified-lifecycle.ts",
     "test:chatgpt-import": "tsx scripts/verify-chatgpt-import.ts",
